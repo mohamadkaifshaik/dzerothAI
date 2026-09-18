@@ -1,23 +1,23 @@
 # Dzeroth Roadmap
 
-**Status:** `PLANNING BASELINE`
+**Status:** `PHASE 0 COMPLETE — Phase 1 in progress`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
 ## Phase 0 — Audit and architecture
 
-- [ ] Run `00-project-auditor`
-- [ ] Produce a repository inventory
-- [ ] Identify implemented, partial, broken, and missing functionality
-- [ ] Run `01-architecture-planner`
-- [ ] Confirm package/module boundaries
-- [ ] Confirm API and database ownership
-- [ ] Establish ID, timestamp, pagination, error, and configuration conventions
-- [ ] Establish feed architecture
-- [ ] Establish UI design system and authoritative reusable post component
-- [ ] Record important decisions in ADRs
+- [x] Run `00-project-auditor`
+- [x] Produce a repository inventory
+- [x] Identify implemented, partial, broken, and missing functionality
+- [x] Run `01-architecture-planner`
+- [x] Confirm package/module boundaries
+- [x] Confirm API and database ownership
+- [x] Establish ID, timestamp, pagination, error, and configuration conventions
+- [x] Establish feed architecture
+- [ ] Establish UI design system and authoritative reusable post component — deferred to Phase 1
+- [x] Record important decisions in ADRs (0002–0006)
 
-**Exit gate:** architecture is understood and contradictions are resolved before feature implementation begins.
+**Exit gate:** architecture is understood and contradictions are resolved before feature implementation begins. ✓
 
 ## Phase 1 — Foundation, identity, and profiles
 

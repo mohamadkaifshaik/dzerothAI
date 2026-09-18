@@ -38,7 +38,7 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-019 | Discovery | Search | PLANNED | Phase 4 |
 | F-020 | Notifications | Notifications | PLANNED | Phase 4 |
 | F-021 | Safety | Reporting | PLANNED | Phase 5 |
-| F-022 | Safety | Block/mute | PLANNED | Phase 5 |
+| F-022 | Safety | Block/mute | PLANNED | Phase 1 (schema foundations only — users, blocks, mutes tables); Phase 5 (full UI and enforcement) |
 | F-023 | Creator | Private Creator Studio | PLANNED | Phase 5 |
 | F-024 | Ranking | Localized weekly titles | PLANNED | Phase 6 |
 | F-025 | Operations | Observability | PLANNED | Phase 7 |

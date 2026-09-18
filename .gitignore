@@ -1,3 +1,14 @@
+# Environment and secrets — never commit
+.env
+.env.*
+*.env
+.envrc
+# Allow the example template — it contains only placeholder values
+!.env.example
+
+# Claude Code local session settings
+.claude/settings.local.json
+
 # Miscellaneous
 *.class
 *.log
@@ -38,6 +49,10 @@ app.*.symbols
 
 # Obfuscation related
 app.*.map.json
+
+# Go build output
+apps/backend/bin/
+apps/backend/*.exe
 
 # Android Studio will place build artifacts here
 /android/app/debug
