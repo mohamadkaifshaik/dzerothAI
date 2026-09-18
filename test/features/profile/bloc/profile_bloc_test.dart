@@ -64,9 +64,8 @@ void main() {
     blocTest<ProfileBloc, ProfileState>(
       'emits [ProfileLoading, ProfileLoaded(ownProfile)] on success',
       build: () {
-        when(() => mockRepo.getOwnProfile()).thenAnswer(
-          (_) async => const Success(_testOwnProfile),
-        );
+        when(() => mockRepo.getOwnProfile())
+            .thenAnswer((_) async => const Success(_testOwnProfile));
         return ProfileBloc(profileRepository: mockRepo);
       },
       act: (bloc) => bloc.add(const OwnProfileLoadRequested()),
@@ -79,9 +78,8 @@ void main() {
     blocTest<ProfileBloc, ProfileState>(
       'emits [ProfileLoading, ProfileError(failure)] on failure',
       build: () {
-        when(() => mockRepo.getOwnProfile()).thenAnswer(
-          (_) async => const Err(ServerFailure('server error')),
-        );
+        when(() => mockRepo.getOwnProfile())
+            .thenAnswer((_) async => const Err(ServerFailure('server error')));
         return ProfileBloc(profileRepository: mockRepo);
       },
       act: (bloc) => bloc.add(const OwnProfileLoadRequested()),
@@ -100,9 +98,8 @@ void main() {
     blocTest<ProfileBloc, ProfileState>(
       'emits [ProfileLoading, ProfileLoaded(publicProfile)] on success',
       build: () {
-        when(
-          () => mockRepo.getUserProfile(any()),
-        ).thenAnswer((_) async => const Success(_testPublicProfile));
+        when(() => mockRepo.getUserProfile(any()))
+            .thenAnswer((_) async => const Success(_testPublicProfile));
         return ProfileBloc(profileRepository: mockRepo);
       },
       act: (bloc) => bloc.add(
@@ -119,16 +116,13 @@ void main() {
     blocTest<ProfileBloc, ProfileState>(
       'emits [ProfileLoading, ProfileError] when user is not found',
       build: () {
-        when(
-          () => mockRepo.getUserProfile(any()),
-        ).thenAnswer(
+        when(() => mockRepo.getUserProfile(any())).thenAnswer(
           (_) async => const Err(NotFoundFailure('User not found.')),
         );
         return ProfileBloc(profileRepository: mockRepo);
       },
-      act: (bloc) => bloc.add(
-        const ProfileLoadRequested(userId: 'nonexistent-id'),
-      ),
+      act: (bloc) =>
+          bloc.add(const ProfileLoadRequested(userId: 'nonexistent-id')),
       expect: () => [
         const ProfileLoading(),
         isA<ProfileError>().having(
@@ -180,16 +174,13 @@ void main() {
             location: any(named: 'location'),
             websiteUrl: any(named: 'websiteUrl'),
           ),
-        ).thenAnswer(
-          (_) async => const Err(ServerFailure('update failed')),
-        );
+        ).thenAnswer((_) async => const Err(ServerFailure('update failed')));
 
         return ProfileBloc(profileRepository: mockRepo);
       },
       seed: () => const ProfileLoaded(profile: _testOwnProfile),
-      act: (bloc) => bloc.add(
-        const ProfileUpdateRequested(displayName: 'Bad Update'),
-      ),
+      act: (bloc) =>
+          bloc.add(const ProfileUpdateRequested(displayName: 'Bad Update')),
       expect: () => [
         const EditProfileSubmitting(current: _testOwnProfile),
         isA<EditProfileError>()
@@ -211,39 +202,43 @@ void main() {
 
   group('ProfileLoaded — metric lockdown', () {
     test(
-        'Profile entity has no follower/like/impression/bookmark count fields',
-        () {
-      // Confirm via reflection that the Profile entity does not carry
-      // any social-validation metric fields.
-      //
-      // We iterate the props list returned by Profile (which via Equatable
-      // represents the canonical field list) and check our fixture.
-      //
-      // The authoritative invariant check is in the Go model_test.go via
-      // reflection on JSON tags, but we also verify the Dart entity shape
-      // does not inadvertently carry such fields.
-      final props = _testPublicProfile.props;
+      'Profile entity has no follower/like/impression/bookmark count fields',
+      () {
+        // Confirm via reflection that the Profile entity does not carry
+        // any social-validation metric fields.
+        //
+        // We iterate the props list returned by Profile (which via Equatable
+        // represents the canonical field list) and check our fixture.
+        //
+        // The authoritative invariant check is in the Go model_test.go via
+        // reflection on JSON tags, but we also verify the Dart entity shape
+        // does not inadvertently carry such fields.
+        final props = _testPublicProfile.props;
 
-      // The props for Profile are:
-      // [id, handle, displayName, bio, avatarUrl, headerUrl,
-      //  location, websiteUrl, isPrivate, joinedAt]
-      // There must be exactly 10 props — no metric extras.
-      expect(props.length, 10,
-          reason:
-              'Profile.props must have exactly 10 entries — no social-validation metrics');
-    });
+        // The props for Profile are:
+        // [id, handle, displayName, bio, avatarUrl, headerUrl,
+        //  location, websiteUrl, isPrivate, joinedAt]
+        // There must be exactly 10 props — no metric extras.
+        expect(
+          props.length,
+          10,
+          reason: 'Profile.props must have exactly 10 entries — no social-validation metrics',
+        );
+      },
+    );
 
-    test('OwnProfile entity extends Profile props with only email + emailVerified',
-        () {
-      final ownProps = _testOwnProfile.props;
-      final publicProps = _testPublicProfile.props;
-      // OwnProfile.props = public props (10) + email + emailVerified = 12.
-      expect(
-        ownProps.length,
-        publicProps.length + 2,
-        reason:
-            'OwnProfile.props must be Profile.props + 2 (email, emailVerified) — no metric extras',
-      );
-    });
+    test(
+      'OwnProfile entity extends Profile props with only email + emailVerified',
+      () {
+        final ownProps = _testOwnProfile.props;
+        final publicProps = _testPublicProfile.props;
+        // OwnProfile.props = public props (10) + email + emailVerified = 12.
+        expect(
+          ownProps.length,
+          publicProps.length + 2,
+          reason: 'OwnProfile.props must be Profile.props + 2 (email, emailVerified) — no metric extras',
+        );
+      },
+    );
   });
 }

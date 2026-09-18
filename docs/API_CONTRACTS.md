@@ -90,18 +90,18 @@ Authorization: Bearer <jwt_access_token>
 
 | Area | Method | Endpoint | Status | Notes |
 |---|---|---|---|---|
-| Health | `GET` | `/health` | PROPOSED | No auth required. Returns `{"status":"ok","db":"ok","redis":"ok"}` or `{"status":"degraded",...}`. |
-| Auth | `POST` | `/api/v1/auth/register` | PROPOSED | Create account. Returns access + refresh token pair. |
-| Auth | `POST` | `/api/v1/auth/login` | PROPOSED | Authenticate. Returns access + refresh token pair. |
-| Auth | `POST` | `/api/v1/auth/refresh` | PROPOSED | Rotate refresh token. Refresh token in request body. Returns new pair. |
-| Auth | `POST` | `/api/v1/auth/logout` | PROPOSED | Revoke current session. Requires `Authorization: Bearer`. |
-| Identity | `GET` | `/api/v1/me` | PROPOSED | Get own profile. Requires auth. |
-| Identity | `PUT` | `/api/v1/me` | PROPOSED | Update own profile (bio, display name, location, website). Requires auth. |
-| Identity | `GET` | `/api/v1/me/settings` | PROPOSED | Get account/privacy settings. Requires auth. |
-| Identity | `PUT` | `/api/v1/me/settings` | PROPOSED | Update account/privacy settings. Requires auth. |
-| Identity | `PUT` | `/api/v1/me/avatar` | PROPOSED — BLOCKED | Avatar upload (multipart). Blocked on media storage provider decision (OPEN-1). |
-| Identity | `PUT` | `/api/v1/me/header` | PROPOSED — BLOCKED | Header image upload (multipart). Blocked on media storage provider decision (OPEN-1). |
-| Profiles | `GET` | `/api/v1/users/:id` | PROPOSED | Get a user's public profile by UUID. Requires auth. Response must not include public validation metrics. |
+| Health | `GET` | `/health` | IMPLEMENTED | No auth required. Returns `{"status":"ok","db":"ok","redis":"ok"}` or `{"status":"degraded",...}`. |
+| Auth | `POST` | `/api/v1/auth/register` | IMPLEMENTED | Create account. Returns access + refresh token pair. |
+| Auth | `POST` | `/api/v1/auth/login` | IMPLEMENTED | Authenticate. Returns access + refresh token pair. |
+| Auth | `POST` | `/api/v1/auth/refresh` | IMPLEMENTED | Rotate refresh token. Refresh token in request body. Returns new pair. |
+| Auth | `POST` | `/api/v1/auth/logout` | IMPLEMENTED | Revoke current session. Requires `Authorization: Bearer`. |
+| Identity | `GET` | `/api/v1/me` | IMPLEMENTED | Get own profile. Requires auth. |
+| Identity | `PUT` | `/api/v1/me` | IMPLEMENTED | Update own profile (bio, display name, location, website). Requires auth. |
+| Identity | `GET` | `/api/v1/me/settings` | IMPLEMENTED | Get account/privacy settings. Requires auth. |
+| Identity | `PUT` | `/api/v1/me/settings` | IMPLEMENTED | Update account/privacy settings. Requires auth. |
+| Identity | `PUT` | `/api/v1/me/avatar` | BLOCKED | Avatar upload (multipart). Blocked on media storage provider decision (OPEN-1). |
+| Identity | `PUT` | `/api/v1/me/header` | BLOCKED | Header image upload (multipart). Blocked on media storage provider decision (OPEN-1). |
+| Profiles | `GET` | `/api/v1/users/:id` | IMPLEMENTED | Get a user's public profile by UUID. Requires auth. Returns 404 when blocked (block state is never revealed). Response must not include public validation metrics. |
 
 ### Phase 2 — Posts and conversations
 
@@ -226,14 +226,95 @@ Authorization: Bearer <jwt_access_token>
 - Finite feed — no infinite scrolling.
 - Response items are `PostDTO`; no public social-validation metrics.
 
-### Phase 3+ (not yet designed — do not implement)
+### Phase 3 — Feeds, follows, block/mute, bookmarks
+
+| Area | Method | Endpoint | Status | Notes |
+|---|---|---|---|---|
+| Follow | `POST` | `/api/v1/users/{userID}/follow` | IMPLEMENTED | Auth required. Idempotent. Rate limited: 60/15min per user (fail-closed). |
+| Follow | `DELETE` | `/api/v1/users/{userID}/follow` | IMPLEMENTED | Auth required. No-op if not following. |
+| Follow | `GET` | `/api/v1/users/{userID}/following` | IMPLEMENTED | Auth required. Cursor-paginated. `terminated: true` at 200 items. |
+| Follow | `GET` | `/api/v1/users/{userID}/followers` | IMPLEMENTED | Auth required. Cursor-paginated. `terminated: true` at 200 items. |
+| Block | `POST` | `/api/v1/users/{userID}/block` | IMPLEMENTED | Auth required. Idempotent. Atomically removes follows in both directions. Rate limited: 30/15min. Returns 204. |
+| Block | `DELETE` | `/api/v1/users/{userID}/block` | IMPLEMENTED | Auth required. No-op if not blocked. Returns 204. |
+| Mute | `POST` | `/api/v1/users/{userID}/mute` | IMPLEMENTED | Auth required. Idempotent. Rate limited: shared with block limit. Returns 204. |
+| Mute | `DELETE` | `/api/v1/users/{userID}/mute` | IMPLEMENTED | Auth required. No-op if not muted. Returns 204. |
+| Feed | `GET` | `/api/v1/feeds/home` | IMPLEMENTED | Auth required. Follower-based DB-first JOIN. Cursor-paginated. `terminated: true` at 200 items. Filters deleted, blocked, muted, private-account posts (server-side). |
+| Bookmark | `POST` | `/api/v1/posts/{postID}/bookmark` | IMPLEMENTED | Auth required. Idempotent. Returns 204. Rate limited: 120/15min. |
+| Bookmark | `DELETE` | `/api/v1/posts/{postID}/bookmark` | IMPLEMENTED | Auth required. No-op if not bookmarked. Returns 204. |
+| Bookmark | `GET` | `/api/v1/me/bookmarks` | IMPLEMENTED | Auth required. Owner-only (JWT callerID only — no path param). Cursor-paginated. `terminated: true` at 200 items. Soft-deleted posts excluded. |
+
+#### `GET /api/v1/feeds/home` — Home timeline
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Query parameters:**
+
+- `cursor` (optional): opaque base64url cursor for pagination.
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [ /* array of PostDTO */ ],
+  "next_cursor": "<base64url | null>",
+  "terminated": true
+}
+```
+
+**Key behaviors:**
+
+- `terminated: true` at server-enforced maximum of 200 posts per session. Flutter client must stop requesting and display the "Go Touch Grass" boundary UX.
+- Soft-deleted posts (`is_deleted = TRUE`) are excluded.
+- Posts from blocked users (in either direction) are excluded.
+- Posts from muted users are excluded.
+- Posts from private-account users the caller does not follow are excluded.
+- Termination is per-session (resets on new client session). No server-side daily counter.
+
+#### `GET /api/v1/users/{userID}/following` and `GET /api/v1/users/{userID}/followers`
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Response shape:**
+
+```json
+{
+  "items": [
+    { "id": "<uuid-v7>", "handle": "username", "display_name": "Display Name", "avatar_url": null }
+  ],
+  "next_cursor": "<base64url | null>",
+  "terminated": true
+}
+```
+
+- Zero follower/following count fields — public aggregate counts are permanently forbidden (CLAUDE.md §2.3).
+
+#### `GET /api/v1/me/bookmarks` — Bookmark list
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Response shape:**
+
+```json
+{
+  "items": [
+    { "post_id": "<uuid-v7>", "created_at": "2026-09-18T12:00:00Z", "post": { /* PostDTO */ } }
+  ],
+  "next_cursor": "<base64url | null>",
+  "terminated": true
+}
+```
+
+- Owner-only. `BookmarkDTO` is never nested inside `PostDTO`. No `bookmark_count` field exists anywhere.
+
+### Phase 4+ (not yet designed — do not implement)
 
 | Area | Endpoint | Status | Notes |
 |---|---|---|---|
-| Feed | `/api/v1/feeds/inner-circle` | PROPOSED | Define only after Phase 3 architecture. |
-| Feed | `/api/v1/feeds/discovery` | PROPOSED | Define only after Phase 3 architecture. |
-| Search | Search endpoints | PROPOSED | Define only after Phase 4 architecture. |
-| Notifications | Notification endpoints | PROPOSED | Define only after Phase 4 architecture. |
+| Feed | `/api/v1/feeds/inner-circle` | DEFERRED | Requires separate architecture design. |
+| Feed | `/api/v1/feeds/discovery` | DEFERRED | Requires content ranking logic. |
+| Reactions | Reaction endpoints | PLANNED | Phase 4 — define only after interaction model design. |
+| Search | Search endpoints | PLANNED | Phase 4 — define only after search architecture. |
+| Notifications | Notification endpoints | PLANNED | Phase 4 — define only after notification model design. |
 
 ---
 

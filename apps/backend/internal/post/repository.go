@@ -259,6 +259,20 @@ func (r *Repository) GetAuthorIsPrivate(ctx context.Context, authorID uuid.UUID)
 	return isPrivate, nil
 }
 
+// ScanPostRow scans a single row from a posts JOIN users query.
+// Exported so that other packages (e.g. internal/feed) can reuse the scan
+// logic without duplicating it (OPEN-5).
+func ScanPostRow(row pgx.Row) (Post, error) {
+	return scanPost(row)
+}
+
+// ScanPostRows scans all rows from a posts JOIN users query.
+// Exported so that other packages (e.g. internal/feed) can reuse the scan
+// logic without duplicating it (OPEN-5).
+func ScanPostRows(rows pgx.Rows) ([]Post, error) {
+	return collectRows(rows)
+}
+
 // scanPost scans a single row from a posts JOIN users query.
 func scanPost(row pgx.Row) (Post, error) {
 	var p Post

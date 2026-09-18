@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,15 +14,29 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/auth"
 )
 
+// BlockChecker allows user.Handler to check bidirectional block state without
+// importing the block package directly, avoiding a circular dependency.
+// block.Service satisfies this interface via its IsBlockedBidirectional method.
+type BlockChecker interface {
+	IsBlockedBidirectional(ctx context.Context, userA, userB uuid.UUID) (bool, error)
+}
+
 // Handler exposes the user profile HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc          *Service
+	log          *zap.Logger
+	blockChecker BlockChecker
 }
 
 // NewHandler constructs a user Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetBlockChecker injects a BlockChecker dependency. Must be called after
+// NewHandler and before the first request is served.
+func (h *Handler) SetBlockChecker(bc BlockChecker) {
+	h.blockChecker = bc
 }
 
 // RegisterRoutes mounts all user/profile routes on the provided chi.Router.
@@ -140,8 +155,13 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 // getUserByID handles GET /api/v1/users/{id}.
 // Returns the PublicProfile for any user by UUID.
 // The response never includes social-validation metrics (CLAUDE.md §2.3).
+//
+// Privacy enforcement (CLAUDE.md §12): when a bidirectional block exists
+// between the authenticated caller and the target user, this handler returns
+// HTTP 404 "user not found" — never HTTP 403. This ensures neither party can
+// infer that a block relationship exists by observing the response status code.
 func (h *Handler) getUserByID(w http.ResponseWriter, r *http.Request) {
-	_, ok := auth.UserIDFromContext(r.Context())
+	callerID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		apierror.Render(w, http.StatusUnauthorized,
 			apierror.New(apierror.CodeUnauthorized, "Not authenticated."))
@@ -154,6 +174,26 @@ func (h *Handler) getUserByID(w http.ResponseWriter, r *http.Request) {
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid user ID format."))
 		return
+	}
+
+	// Block-based 404: if either party has blocked the other, return 404 to
+	// avoid revealing the block state (CLAUDE.md §12). Skip the check when
+	// the caller is looking up their own profile, or when no block checker is
+	// configured (safe degradation — profile remains visible).
+	if h.blockChecker != nil && callerID != targetID {
+		blocked, err := h.blockChecker.IsBlockedBidirectional(r.Context(), callerID, targetID)
+		if err != nil {
+			h.log.Error("user: block check for profile lookup", zap.Error(err))
+			apierror.Render(w, http.StatusInternalServerError,
+				apierror.New(apierror.CodeInternal, "An unexpected error occurred."))
+			return
+		}
+		if blocked {
+			// Return 404 — do not reveal that a block relationship exists.
+			apierror.Render(w, http.StatusNotFound,
+				apierror.New(apierror.CodeNotFound, "User not found."))
+			return
+		}
 	}
 
 	u, err := h.svc.GetProfile(r.Context(), targetID)

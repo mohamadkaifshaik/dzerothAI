@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../../../features/block/presentation/bloc/block_bloc.dart';
+import '../../../../features/follow/presentation/bloc/follow_bloc.dart';
 import '../../domain/entities/own_profile.dart';
 import '../../domain/entities/profile.dart';
 import '../bloc/profile_bloc.dart';
@@ -10,11 +13,16 @@ import '../bloc/profile_bloc.dart';
 ///
 /// PUBLIC METRICS LOCKDOWN: This screen must NOT display any social-validation
 /// metrics (follower count, following count, like count, impression count, etc.)
-/// per CLAUDE.md section 2.3.
+/// per CLAUDE.md §2.3.
 ///
 /// Accepts a [userId] and dispatches [ProfileLoadRequested] to load the profile.
 /// When [isOwnProfile] is true it dispatches [OwnProfileLoadRequested] instead
 /// and shows the edit button.
+///
+/// For other users' profiles:
+///   - A follow/unfollow button is shown to authenticated viewers.
+///   - A context menu (three-dot) provides mute/unmute and block/unblock actions.
+///   - On [BlockSuccess] with action "blocked", the screen navigates away.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
@@ -34,6 +42,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+
+    // For other users' profiles, check the initial follow status.
+    if (!widget.isOwnProfile) {
+      final authState = context.read<AuthBloc>().state;
+      if (authState is AuthAuthenticated) {
+        context.read<FollowBloc>().add(const FollowStatusCheckRequested());
+      }
+    }
   }
 
   void _loadProfile() {
@@ -48,19 +64,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: BlocBuilder<ProfileBloc, ProfileState>(
-        builder: (context, state) {
-          return switch (state) {
-            ProfileLoading() || ProfileInitial() => _buildLoading(),
-            ProfileLoaded(:final profile) => _buildProfile(context, profile),
-            ProfileError(:final failure) => _buildError(
-              context,
-              failure.message,
-            ),
-            _ => _buildLoading(),
-          };
-        },
+    return MultiBlocListener(
+      listeners: [
+        // Navigate away when the user is blocked.
+        BlocListener<BlockBloc, BlockState>(
+          listener: (context, state) {
+            if (state is BlockSuccess && state.action == 'blocked') {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/home/feed');
+              }
+            }
+          },
+        ),
+      ],
+      child: Scaffold(
+        body: BlocBuilder<ProfileBloc, ProfileState>(
+          builder: (context, state) {
+            return switch (state) {
+              ProfileLoading() || ProfileInitial() => _buildLoading(),
+              ProfileLoaded(:final profile) => _buildProfile(context, profile),
+              ProfileError(:final failure) => _buildError(
+                context,
+                failure.message,
+              ),
+              _ => _buildLoading(),
+            };
+          },
+        ),
       ),
     );
   }
@@ -115,6 +147,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final theme = Theme.of(context);
     final isOwn = profile is OwnProfile;
 
+    // Determine if the viewer is authenticated and viewing another user.
+    final authState = context.watch<AuthBloc>().state;
+    final viewerIsAuthenticated = authState is AuthAuthenticated;
+    final showSocialActions = !isOwn && viewerIsAuthenticated;
+
     return CustomScrollView(
       slivers: [
         SliverAppBar(
@@ -127,6 +164,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 tooltip: 'Edit profile',
                 onPressed: () => context.push('/users/${profile.id}/edit'),
               ),
+            if (showSocialActions)
+              _BlockMuteMenuButton(targetUserId: widget.userId),
           ],
           flexibleSpace: FlexibleSpaceBar(
             background: _HeaderArea(headerUrl: profile.headerUrl),
@@ -140,7 +179,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 const SizedBox(height: 12),
 
-                // Avatar row with edit button for own profile
+                // Avatar row with action buttons.
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -149,6 +188,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       displayName: profile.displayName,
                     ),
                     const Spacer(),
+                    // Follow/unfollow button for other users' profiles.
+                    if (showSocialActions) const _FollowButton(),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -240,6 +281,114 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Follow button
+// ---------------------------------------------------------------------------
+
+/// Follow/unfollow toggle button.
+///
+/// Reads [FollowBloc] from context — the BLoC must be provided above this
+/// widget in the tree (at the profile screen level).
+class _FollowButton extends StatelessWidget {
+  const _FollowButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<FollowBloc, FollowState>(
+      builder: (context, state) {
+        // Show a spinner while loading.
+        if (state is FollowLoading) {
+          return const SizedBox(
+            width: 88,
+            height: 36,
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+
+        final isFollowing = state is FollowSuccess && state.isFollowing;
+
+        return isFollowing
+            ? OutlinedButton(
+                onPressed: () =>
+                    context.read<FollowBloc>().add(const UnfollowRequested()),
+                child: const Text('Following'),
+              )
+            : FilledButton(
+                onPressed: () =>
+                    context.read<FollowBloc>().add(const FollowRequested()),
+                child: const Text('Follow'),
+              );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Block / mute context menu
+// ---------------------------------------------------------------------------
+
+/// Three-dot context menu for block and mute actions on another user's profile.
+///
+/// Reads [BlockBloc] from context — the BLoC must be provided above this
+/// widget in the tree (at the profile screen level).
+class _BlockMuteMenuButton extends StatelessWidget {
+  const _BlockMuteMenuButton({required this.targetUserId});
+
+  final String targetUserId;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<BlockBloc, BlockState>(
+      builder: (context, state) {
+        return PopupMenuButton<_ProfileAction>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: 'More options',
+          onSelected: (action) => _handleAction(context, action),
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: _ProfileAction.mute,
+              child: ListTile(
+                leading: Icon(Icons.volume_off_outlined),
+                title: Text('Mute'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            PopupMenuItem(
+              value: _ProfileAction.block,
+              child: ListTile(
+                leading: Icon(Icons.block_outlined),
+                title: Text('Block'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _handleAction(BuildContext context, _ProfileAction action) {
+    switch (action) {
+      case _ProfileAction.mute:
+        context.read<BlockBloc>().add(const MuteUserRequested());
+      case _ProfileAction.block:
+        context.read<BlockBloc>().add(const BlockUserRequested());
+    }
+  }
+}
+
+enum _ProfileAction { mute, block }
+
+// ---------------------------------------------------------------------------
+// Shared private widgets (unchanged from original)
+// ---------------------------------------------------------------------------
 
 class _HeaderArea extends StatelessWidget {
   const _HeaderArea({this.headerUrl});

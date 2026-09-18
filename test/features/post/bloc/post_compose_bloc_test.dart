@@ -109,10 +109,7 @@ void main() {
         'emits PostComposeError(ValidationFailure) when content exceeds 500 code points',
         build: () => PostComposeBloc(postRepository: mockRepo),
         act: (bloc) => bloc.add(
-          PostComposeSubmitted(
-            postType: 'original',
-            content: _runeString(501),
-          ),
+          PostComposeSubmitted(postType: 'original', content: _runeString(501)),
         ),
         expect: () => [
           isA<PostComposeError>().having(
@@ -147,10 +144,7 @@ void main() {
           return PostComposeBloc(postRepository: mockRepo);
         },
         act: (bloc) => bloc.add(
-          PostComposeSubmitted(
-            postType: 'original',
-            content: _runeString(500),
-          ),
+          PostComposeSubmitted(postType: 'original', content: _runeString(500)),
         ),
         expect: () => [
           const PostComposeSubmitting(),
@@ -300,46 +294,40 @@ void main() {
         ],
       );
 
+      // Quote posts with valid content now start the countdown rather than
+      // submitting directly (CLAUDE.md §2.2).
       blocTest<PostComposeBloc, PostComposeState>(
-        'accepts quote post with exactly 5 distinct words',
-        build: () {
-          when(
-            () => mockRepo.createPost(
-              postType: any(named: 'postType'),
-              content: any(named: 'content'),
-              parentId: any(named: 'parentId'),
-              quotedPostId: any(named: 'quotedPostId'),
-            ),
-          ).thenAnswer((_) async => Success(_createdPost));
-          return PostComposeBloc(postRepository: mockRepo);
-        },
+        'emits PostComposeCountdown(5) — not PostComposeSubmitting — for quote '
+        'post with exactly 5 distinct words (countdown gate, CLAUDE.md §2.2)',
+        build: () => PostComposeBloc(postRepository: mockRepo),
         act: (bloc) => bloc.add(
           const PostComposeSubmitted(
             postType: 'quote',
-            // Exactly 5 distinct words — must pass the threshold.
+            // Exactly 5 distinct words — must pass the word-count threshold
+            // and enter the countdown.
             content: 'alpha beta gamma delta epsilon',
             quotedPostId: 'post-abc',
           ),
         ),
         expect: () => [
-          const PostComposeSubmitting(),
-          PostComposeSuccess(post: _createdPost),
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
         ],
-      );
-
-      blocTest<PostComposeBloc, PostComposeState>(
-        'accepts quote post with more than 5 distinct words',
-        build: () {
-          when(
+        verify: (_) {
+          // Repository must not be called until countdown completes.
+          verifyNever(
             () => mockRepo.createPost(
               postType: any(named: 'postType'),
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
             ),
-          ).thenAnswer((_) async => Success(_createdPost));
-          return PostComposeBloc(postRepository: mockRepo);
+          );
         },
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'emits PostComposeCountdown(5) for quote post with more than 5 distinct words',
+        build: () => PostComposeBloc(postRepository: mockRepo),
         act: (bloc) => bloc.add(
           const PostComposeSubmitted(
             postType: 'quote',
@@ -348,58 +336,46 @@ void main() {
           ),
         ),
         expect: () => [
-          const PostComposeSubmitting(),
-          PostComposeSuccess(post: _createdPost),
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
         ],
-      );
-
-      blocTest<PostComposeBloc, PostComposeState>(
-        'normalizes punctuation when counting distinct words for quote posts',
-        build: () {
-          when(
+        verify: (_) {
+          verifyNever(
             () => mockRepo.createPost(
               postType: any(named: 'postType'),
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
             ),
-          ).thenAnswer((_) async => Success(_createdPost));
-          return PostComposeBloc(postRepository: mockRepo);
+          );
         },
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'normalizes punctuation when counting distinct words for quote posts',
+        build: () => PostComposeBloc(postRepository: mockRepo),
         act: (bloc) => bloc.add(
           const PostComposeSubmitted(
             postType: 'quote',
             // Punctuation is stripped; "alpha", "beta", "gamma", "delta",
-            // "epsilon" are 5 distinct normalized tokens.
+            // "epsilon" are 5 distinct normalized tokens — enters countdown.
             content: 'alpha, beta! gamma. delta; epsilon?',
             quotedPostId: 'post-abc',
           ),
         ),
         expect: () => [
-          const PostComposeSubmitting(),
-          PostComposeSuccess(post: _createdPost),
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
         ],
       );
     });
 
     // -----------------------------------------------------------------------
-    // Repost — no content validation
+    // Repost — no content validation, but countdown required (CLAUDE.md §2.2)
     // -----------------------------------------------------------------------
 
     group('repost type', () {
       blocTest<PostComposeBloc, PostComposeState>(
-        'skips content validation for repost type and calls repository',
-        build: () {
-          when(
-            () => mockRepo.createPost(
-              postType: any(named: 'postType'),
-              content: any(named: 'content'),
-              parentId: any(named: 'parentId'),
-              quotedPostId: any(named: 'quotedPostId'),
-            ),
-          ).thenAnswer((_) async => Success(_createdPost));
-          return PostComposeBloc(postRepository: mockRepo);
-        },
+        'skips content validation for repost type and starts countdown',
+        build: () => PostComposeBloc(postRepository: mockRepo),
         act: (bloc) => bloc.add(
           const PostComposeSubmitted(
             postType: 'repost',
@@ -408,9 +384,19 @@ void main() {
           ),
         ),
         expect: () => [
-          const PostComposeSubmitting(),
-          PostComposeSuccess(post: _createdPost),
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
         ],
+        verify: (_) {
+          // Repository must not be called until countdown completes.
+          verifyNever(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+            ),
+          );
+        },
       );
     });
 
@@ -459,6 +445,243 @@ void main() {
           ),
         ),
         expect: () => [
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Countdown state machine (CLAUDE.md §2.2)
+    // -----------------------------------------------------------------------
+    //
+    // Timer ticks are simulated by dispatching PostComposeCountdownTicked
+    // events manually, because the real Timer.periodic uses wall-clock time.
+    // The bloc_test framework does not have fake_async built in and
+    // package:fake_async is not a project dependency, so we verify the state
+    // machine directly.
+
+    group('countdown state machine (CLAUDE.md §2.2)', () {
+      blocTest<PostComposeBloc, PostComposeState>(
+        'PostComposeCountdown emitted for quote post — countdown starts at 5',
+        build: () => PostComposeBloc(postRepository: mockRepo),
+        act: (bloc) => bloc.add(
+          const PostComposeSubmitted(
+            postType: 'quote',
+            content: 'alpha beta gamma delta epsilon',
+            quotedPostId: 'post-abc',
+          ),
+        ),
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+        ],
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'PostComposeCountdown emitted for repost — countdown starts at 5',
+        build: () => PostComposeBloc(postRepository: mockRepo),
+        act: (bloc) => bloc.add(
+          const PostComposeSubmitted(
+            postType: 'repost',
+            quotedPostId: 'post-xyz',
+          ),
+        ),
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+        ],
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'no countdown for original post — submits directly',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+            ),
+          ).thenAnswer((_) async => Success(_createdPost));
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) => bloc.add(
+          const PostComposeSubmitted(
+            postType: 'original',
+            content: 'Hello world this is fine',
+          ),
+        ),
+        expect: () => [
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'no countdown for reply post — submits directly',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+            ),
+          ).thenAnswer((_) async => Success(_createdPost));
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) => bloc.add(
+          const PostComposeSubmitted(
+            postType: 'reply',
+            content: 'Great point',
+            parentId: 'post-parent',
+          ),
+        ),
+        expect: () => [
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'countdown ticks decrement secondsRemaining: 5 → 4 → 3',
+        build: () => PostComposeBloc(postRepository: mockRepo),
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'quote',
+              content: 'alpha beta gamma delta epsilon',
+              quotedPostId: 'post-abc',
+            ),
+          );
+          // Simulate two manual ticks (stopping before 0 so no submission
+          // is triggered and no repository mock is needed).
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(4));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(3));
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 4, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 3, totalSeconds: 5),
+        ],
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'cancelling during countdown returns to PostComposeInitial',
+        build: () => PostComposeBloc(postRepository: mockRepo),
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'quote',
+              content: 'alpha beta gamma delta epsilon',
+              quotedPostId: 'post-abc',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownCancelled());
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeInitial(),
+        ],
+        verify: (_) {
+          verifyNever(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+            ),
+          );
+        },
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'submits after countdown reaches 0 — emits PostComposeSubmitting then '
+        'PostComposeSuccess',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+            ),
+          ).thenAnswer((_) async => Success(_createdPost));
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'quote',
+              content: 'alpha beta gamma delta epsilon',
+              quotedPostId: 'post-abc',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          // Drive the countdown to zero manually.
+          bloc.add(const PostComposeCountdownTicked(4));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(3));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(2));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(1));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(0));
+          await Future<void>.delayed(Duration.zero);
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 4, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 3, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 2, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 1, totalSeconds: 5),
+          // secondsRemaining == 0 → no new countdown state, proceeds to submit
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'repost submits after countdown reaches 0',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+            ),
+          ).thenAnswer((_) async => Success(_createdPost));
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'repost',
+              quotedPostId: 'post-xyz',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(4));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(3));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(2));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(1));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(0));
+          await Future<void>.delayed(Duration.zero);
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 4, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 3, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 2, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 1, totalSeconds: 5),
           const PostComposeSubmitting(),
           PostComposeSuccess(post: _createdPost),
         ],

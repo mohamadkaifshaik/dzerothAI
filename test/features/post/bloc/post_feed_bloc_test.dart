@@ -25,14 +25,14 @@ const _author = PostAuthor(
 );
 
 Post _makePost(String id) => Post(
-      id: id,
-      author: _author,
-      postType: 'original',
-      content: 'Post $id',
-      isDeleted: false,
-      createdAt: DateTime.utc(2024),
-      updatedAt: DateTime.utc(2024),
-    );
+  id: id,
+  author: _author,
+  postType: 'original',
+  content: 'Post $id',
+  isDeleted: false,
+  createdAt: DateTime.utc(2024),
+  updatedAt: DateTime.utc(2024),
+);
 
 final _post1 = _makePost('post-1');
 final _post2 = _makePost('post-2');
@@ -69,13 +69,9 @@ void main() {
         'emits [PostFeedLoading, PostFeedLoaded] on successful non-terminated load',
         build: () {
           when(
-            () => mockRepo.listPostsByAuthor(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
-          ).thenAnswer(
-            (_) async => Success(_pageWithMore([_post1, _post2])),
-          );
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+          ).thenAnswer((_) async => Success(_pageWithMore([_post1, _post2])));
           return PostFeedBloc(postRepository: mockRepo);
         },
         act: (bloc) => bloc.add(
@@ -95,9 +91,8 @@ void main() {
           ),
         ],
         verify: (_) {
-          verify(
-            () => mockRepo.listPostsByAuthor(_subjectId, cursor: null),
-          ).called(1);
+          verify(() => mockRepo.listPostsByAuthor(_subjectId, cursor: null))
+              .called(1);
         },
       );
 
@@ -105,13 +100,9 @@ void main() {
         'emits [PostFeedLoading, PostFeedTerminated] when repository returns terminated:true',
         build: () {
           when(
-            () => mockRepo.listPostsByAuthor(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
-          ).thenAnswer(
-            (_) async => Success(_terminatedPage([_post1])),
-          );
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+          ).thenAnswer((_) async => Success(_terminatedPage([_post1])));
           return PostFeedBloc(postRepository: mockRepo);
         },
         act: (bloc) => bloc.add(
@@ -125,9 +116,8 @@ void main() {
           PostFeedTerminated(posts: [_post1]),
         ],
         verify: (_) {
-          verify(
-            () => mockRepo.listPostsByAuthor(_subjectId, cursor: null),
-          ).called(1);
+          verify(() => mockRepo.listPostsByAuthor(_subjectId, cursor: null))
+              .called(1);
         },
       );
 
@@ -135,13 +125,9 @@ void main() {
         'emits [PostFeedLoading, PostFeedError] when repository fails',
         build: () {
           when(
-            () => mockRepo.listPostsByAuthor(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
-          ).thenAnswer(
-            (_) async => const Err(NetworkFailure('unreachable')),
-          );
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+          ).thenAnswer((_) async => const Err(NetworkFailure('unreachable')));
           return PostFeedBloc(postRepository: mockRepo);
         },
         act: (bloc) => bloc.add(
@@ -164,13 +150,9 @@ void main() {
         'uses listThreadReplies when feedType is threadReplies',
         build: () {
           when(
-            () => mockRepo.listThreadReplies(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
-          ).thenAnswer(
-            (_) async => Success(_pageWithMore([_post2])),
-          );
+            () =>
+                mockRepo.listThreadReplies(any(), cursor: any(named: 'cursor')),
+          ).thenAnswer((_) async => Success(_pageWithMore([_post2])));
           return PostFeedBloc(postRepository: mockRepo);
         },
         act: (bloc) => bloc.add(
@@ -194,7 +176,8 @@ void main() {
             () => mockRepo.listThreadReplies('thread-root-id', cursor: null),
           ).called(1);
           verifyNever(
-            () => mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
           );
         },
       );
@@ -216,10 +199,12 @@ void main() {
         expect: () => <PostFeedState>[],
         verify: (_) {
           verifyNever(
-            () => mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
           );
           verifyNever(
-            () => mockRepo.listThreadReplies(any(), cursor: any(named: 'cursor')),
+            () =>
+                mockRepo.listThreadReplies(any(), cursor: any(named: 'cursor')),
           );
         },
       );
@@ -228,10 +213,8 @@ void main() {
         'fetches next page and appends posts when hasMore is true',
         build: () {
           when(
-            () => mockRepo.listPostsByAuthor(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
           ).thenAnswer(
             (_) async => Success(_pageWithMore([_post3], cursor: 'cursor-3')),
           );
@@ -265,10 +248,7 @@ void main() {
         ],
         verify: (_) {
           verify(
-            () => mockRepo.listPostsByAuthor(
-              _subjectId,
-              cursor: 'cursor-2',
-            ),
+            () => mockRepo.listPostsByAuthor(_subjectId, cursor: 'cursor-2'),
           ).called(1);
         },
       );
@@ -277,13 +257,9 @@ void main() {
         'emits PostFeedTerminated (with merged posts) when next page is the last',
         build: () {
           when(
-            () => mockRepo.listPostsByAuthor(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
-          ).thenAnswer(
-            (_) async => Success(_terminatedPage([_post3])),
-          );
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+          ).thenAnswer((_) async => Success(_terminatedPage([_post3])));
           return PostFeedBloc(postRepository: mockRepo);
         },
         seed: () => PostFeedLoaded(
@@ -320,7 +296,8 @@ void main() {
         expect: () => <PostFeedState>[],
         verify: (_) {
           verifyNever(
-            () => mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
           );
         },
       );
@@ -329,13 +306,9 @@ void main() {
         'restores loaded state and emits PostFeedError when next-page fetch fails',
         build: () {
           when(
-            () => mockRepo.listPostsByAuthor(
-              any(),
-              cursor: any(named: 'cursor'),
-            ),
-          ).thenAnswer(
-            (_) async => const Err(ServerFailure('internal error')),
-          );
+            () =>
+                mockRepo.listPostsByAuthor(any(), cursor: any(named: 'cursor')),
+          ).thenAnswer((_) async => const Err(ServerFailure('internal error')));
           return PostFeedBloc(postRepository: mockRepo);
         },
         seed: () => PostFeedLoaded(

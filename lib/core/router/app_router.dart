@@ -7,6 +7,16 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
+import '../../features/block/domain/repositories/block_repository.dart';
+import '../../features/block/presentation/bloc/block_bloc.dart';
+import '../../features/bookmark/domain/repositories/bookmark_repository.dart';
+import '../../features/bookmark/presentation/bloc/bookmark_list_bloc.dart';
+import '../../features/bookmark/presentation/screens/bookmark_list_screen.dart';
+import '../../features/feed/data/repositories/feed_repository_impl.dart';
+import '../../features/feed/presentation/bloc/home_feed_bloc.dart';
+import '../../features/feed/presentation/screens/home_feed_screen.dart';
+import '../../features/follow/domain/repositories/follow_repository.dart';
+import '../../features/follow/presentation/bloc/follow_bloc.dart';
 import '../../features/post/domain/repositories/post_repository.dart';
 import '../../features/post/presentation/bloc/post_compose_bloc.dart';
 import '../../features/post/presentation/bloc/post_detail_bloc.dart';
@@ -44,6 +54,10 @@ GoRouter createAppRouter({
   required AuthBloc authBloc,
   required ProfileRepository Function() profileRepositoryFactory,
   required PostRepository Function() postRepositoryFactory,
+  required FeedRepositoryImpl Function() feedRepositoryFactory,
+  required FollowRepository Function() followRepositoryFactory,
+  required BlockRepository Function() blockRepositoryFactory,
+  required BookmarkRepository Function() bookmarkRepositoryFactory,
 }) {
   final refreshStream = GoRouterRefreshStream(authBloc.stream);
 
@@ -86,7 +100,14 @@ GoRouter createAppRouter({
         routes: [
           GoRoute(
             path: '/home/feed',
-            builder: (context, state) => const FeedPlaceholderScreen(),
+            builder: (context, state) => BlocProvider(
+              create: (_) =>
+                  HomeFeedBloc(feedRepository: feedRepositoryFactory())
+                    ..add(const HomeFeedLoadRequested()),
+              child: HomeFeedScreen(
+                bookmarkRepositoryFactory: bookmarkRepositoryFactory,
+              ),
+            ),
           ),
           GoRoute(
             path: '/home/search',
@@ -107,6 +128,22 @@ GoRouter createAppRouter({
               return '/auth/login';
             },
           ),
+
+          // Bookmarks — inside shell so the bottom nav bar is visible.
+          GoRoute(
+            path: '/bookmarks',
+            redirect: (context, state) {
+              final authState = authBloc.state;
+              if (authState is! AuthAuthenticated) return '/auth/login';
+              return null;
+            },
+            builder: (context, state) => BlocProvider(
+              create: (_) => BookmarkListBloc(
+                bookmarkRepository: bookmarkRepositoryFactory(),
+              ),
+              child: const BookmarkListScreen(),
+            ),
+          ),
         ],
       ),
 
@@ -119,13 +156,33 @@ GoRouter createAppRouter({
           final isOwn =
               authState is AuthAuthenticated && authState.userId == userId;
 
-          return BlocProvider(
-            create: (_) =>
-                ProfileBloc(profileRepository: profileRepositoryFactory())..add(
-                  isOwn
-                      ? const OwnProfileLoadRequested()
-                      : ProfileLoadRequested(userId: userId),
+          return MultiBlocProvider(
+            providers: [
+              BlocProvider(
+                create: (_) =>
+                    ProfileBloc(profileRepository: profileRepositoryFactory())
+                      ..add(
+                        isOwn
+                            ? const OwnProfileLoadRequested()
+                            : ProfileLoadRequested(userId: userId),
+                      ),
+              ),
+              // FollowBloc and BlockBloc are always created so that the profile
+              // screen can conditionally show social actions without needing to
+              // rebuild the provider tree.
+              BlocProvider(
+                create: (_) => FollowBloc(
+                  followRepository: followRepositoryFactory(),
+                  targetUserId: userId,
                 ),
+              ),
+              BlocProvider(
+                create: (_) => BlockBloc(
+                  blockRepository: blockRepositoryFactory(),
+                  targetUserId: userId,
+                ),
+              ),
+            ],
             child: ProfileScreen(userId: userId, isOwnProfile: isOwn),
           );
         },

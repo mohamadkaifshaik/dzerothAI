@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../../../features/bookmark/presentation/bloc/bookmark_toggle_bloc.dart';
 import '../../domain/entities/post.dart';
 
 /// Renders a single post in a list or feed.
@@ -9,6 +12,11 @@ import '../../domain/entities/post.dart';
 /// (likes, impressions, bookmarks, reply counts, repost counts, view counts,
 /// share counts, follower counts, or any equivalent popularity metric) per
 /// CLAUDE.md §2.3.  Do not add such UI elements to this widget.
+///
+/// The bookmark toggle icon is shown only when the viewer is authenticated.
+/// It dispatches to a [BookmarkToggleBloc] that MUST be provided in the widget
+/// tree above this card (keyed by postId at the list level). No count label is
+/// ever displayed — only the icon.
 class PostCard extends StatelessWidget {
   const PostCard({super.key, required this.post});
 
@@ -41,6 +49,8 @@ class PostCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
+                  const SizedBox(height: 8),
+                  _PostActions(post: post),
                 ],
               ),
             ),
@@ -50,6 +60,113 @@ class PostCard extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Post actions row
+// ---------------------------------------------------------------------------
+
+/// Renders the actions row for a post card.
+///
+/// Currently the only action is the bookmark toggle, visible only when the
+/// viewer is authenticated. No count labels are ever shown.
+class _PostActions extends StatelessWidget {
+  const _PostActions({required this.post});
+
+  final Post post;
+
+  @override
+  Widget build(BuildContext context) {
+    final authState = context.watch<AuthBloc>().state;
+    final isAuthenticated = authState is AuthAuthenticated;
+
+    if (!isAuthenticated) {
+      // No actions visible for unauthenticated viewers.
+      return const SizedBox.shrink();
+    }
+
+    return Row(children: [_BookmarkIcon(post: post)]);
+  }
+}
+
+/// Bookmark toggle icon button.
+///
+/// Reads [BookmarkToggleBloc] from context. That BLoC MUST be provided by the
+/// list/feed widget above this card, keyed by the post ID, so that state is
+/// stable across renders and does not reset on every rebuild.
+///
+/// PUBLIC METRICS LOCKDOWN: no bookmark count label is ever rendered.
+class _BookmarkIcon extends StatelessWidget {
+  const _BookmarkIcon({required this.post});
+
+  final Post post;
+
+  @override
+  Widget build(BuildContext context) {
+    // BookmarkToggleBloc is optional: if none is provided in the tree the
+    // bookmark icon is hidden gracefully.
+    final bloc = _tryReadBloc(context);
+    if (bloc == null) return const SizedBox.shrink();
+
+    return BlocBuilder<BookmarkToggleBloc, BookmarkToggleState>(
+      builder: (context, state) {
+        final isBookmarked = switch (state) {
+          BookmarkSuccess(:final isBookmarked) => isBookmarked,
+          _ => false,
+        };
+        final isLoading = state is BookmarkLoading;
+
+        return Semantics(
+          label: isBookmarked ? 'Remove bookmark' : 'Bookmark',
+          button: true,
+          child: IconButton(
+            iconSize: 20,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            icon: isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  )
+                : Icon(
+                    isBookmarked
+                        ? Icons.bookmark
+                        : Icons.bookmark_border_outlined,
+                  ),
+            onPressed: isLoading
+                ? null
+                : () {
+                    if (isBookmarked) {
+                      context.read<BookmarkToggleBloc>().add(
+                        const UnbookmarkRequested(),
+                      );
+                    } else {
+                      context.read<BookmarkToggleBloc>().add(
+                        const BookmarkRequested(),
+                      );
+                    }
+                  },
+          ),
+        );
+      },
+    );
+  }
+
+  /// Returns the nearest [BookmarkToggleBloc] in the tree, or null if none
+  /// has been provided. This avoids a hard crash when PostCard is rendered
+  /// in contexts where no bookmark BLoC has been wired up yet.
+  BookmarkToggleBloc? _tryReadBloc(BuildContext context) {
+    try {
+      return context.read<BookmarkToggleBloc>();
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deleted post card
+// ---------------------------------------------------------------------------
 
 class _DeletedPostCard extends StatelessWidget {
   const _DeletedPostCard({super.key});
@@ -68,6 +185,10 @@ class _DeletedPostCard extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Avatar
+// ---------------------------------------------------------------------------
 
 class _Avatar extends StatelessWidget {
   const _Avatar({required this.author});
@@ -94,6 +215,10 @@ class _Avatar extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Author row
+// ---------------------------------------------------------------------------
 
 class _AuthorRow extends StatelessWidget {
   const _AuthorRow({required this.author, required this.createdAt});

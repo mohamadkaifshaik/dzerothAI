@@ -27,7 +27,11 @@ import (
 
 	appdb "github.com/mohamadkaifshaik/dzerothAI/apps/backend/db"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/auth"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/block"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/bookmark"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/config"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/feed"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/follow"
 	platformDB "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/db"
 	platformRedis "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/redis"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
@@ -98,10 +102,32 @@ func run() error {
 	userSvc := user.NewService(pool, log)
 	postRepo := post.NewRepository(pool)
 	postSvc := post.NewService(postRepo, log)
+	followRepo := follow.NewRepository(pool)
+	followSvc := follow.NewService(followRepo, log)
+	blockRepo := block.NewRepository(pool)
+	blockSvc := block.NewService(blockRepo, log)
+
+	// Phase-3 dependency injection: wire cross-package interfaces to avoid
+	// circular imports. Both setters are called in the startup phase before
+	// the HTTP server starts listening.
+	postSvc.SetFollowChecker(followSvc)
+
+	// Phase-4: feed package. followRepo satisfies feed.FollowProvider directly
+	// because GetFollowedIDs lives on follow.Repository, not follow.Service.
+	feedRepo := feed.NewRepository(pool)
+	feedSvc := feed.NewService(feedRepo, blockSvc, followRepo, log)
+	feedHandler := feed.NewHandler(feedSvc, log)
+
+	bookmarkRepo := bookmark.NewRepository(pool)
+	bookmarkSvc := bookmark.NewService(bookmarkRepo, log)
+	bookmarkHandler := bookmark.NewHandler(bookmarkSvc, log)
 
 	authHandler := auth.NewHandler(authSvc, log)
 	userHandler := user.NewHandler(userSvc, log)
+	userHandler.SetBlockChecker(blockSvc)
 	postHandler := post.NewHandler(postSvc, log)
+	followHandler := follow.NewHandler(followSvc, log)
+	blockHandler := block.NewHandler(blockSvc, log)
 
 	// ── 7. Build router ───────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -125,6 +151,10 @@ func run() error {
 		authHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 		userHandler.RegisterRoutes(r, cfg.JWTSecret)
 		postHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
+		followHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
+		blockHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
+		feedHandler.RegisterRoutes(r, cfg.JWTSecret)
+		bookmarkHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 	})
 
 	// ── 9. Start HTTP server ──────────────────────────────────────────────────

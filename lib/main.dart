@@ -8,6 +8,13 @@ import 'core/router/app_router.dart';
 import 'core/storage/secure_storage.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
+import 'features/block/data/repositories/block_repository_impl.dart';
+import 'features/block/domain/repositories/block_repository.dart';
+import 'features/bookmark/data/repositories/bookmark_repository_impl.dart';
+import 'features/bookmark/domain/repositories/bookmark_repository.dart';
+import 'features/feed/data/repositories/feed_repository_impl.dart';
+import 'features/follow/data/repositories/follow_repository_impl.dart';
+import 'features/follow/domain/repositories/follow_repository.dart';
 import 'features/post/data/repositories/post_repository_impl.dart';
 import 'features/post/domain/repositories/post_repository.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
@@ -79,11 +86,30 @@ void main() async {
   // shared authenticated Dio instance.
   PostRepository postRepositoryFactory() => PostRepositoryImpl(dio: dio);
 
+  // --- Feed repository factory ---
+  // Each HomeFeedBloc instance gets its own repository backed by the shared
+  // authenticated Dio instance.
+  FeedRepositoryImpl feedRepositoryFactory() => FeedRepositoryImpl(dio: dio);
+
+  // --- Follow repository factory ---
+  FollowRepository followRepositoryFactory() => FollowRepositoryImpl(dio: dio);
+
+  // --- Block repository factory ---
+  BlockRepository blockRepositoryFactory() => BlockRepositoryImpl(dio: dio);
+
+  // --- Bookmark repository factory ---
+  BookmarkRepository bookmarkRepositoryFactory() =>
+      BookmarkRepositoryImpl(dio: dio);
+
   // --- Router ---
   final router = createAppRouter(
     authBloc: authBloc,
     profileRepositoryFactory: profileRepositoryFactory,
     postRepositoryFactory: postRepositoryFactory,
+    feedRepositoryFactory: feedRepositoryFactory,
+    followRepositoryFactory: followRepositoryFactory,
+    blockRepositoryFactory: blockRepositoryFactory,
+    bookmarkRepositoryFactory: bookmarkRepositoryFactory,
   );
 
   runApp(DzerothApp(authBloc: authBloc, router: router));

@@ -69,22 +69,23 @@ void main() {
       );
     });
 
-    test('PostAuthor entity has no social-validation metric fields in props',
-        () {
-      // PostAuthor.props: id, handle, displayName, avatarUrl — exactly 4.
-      final props = _author.props;
-
-      expect(
-        props.length,
-        4,
-        reason:
-            'PostAuthor.props must have exactly 4 entries — '
-            'no follower count or equivalent metric (CLAUDE.md §2.3)',
-      );
-    });
-
     test(
-        'PostDto.fromJson does not carry metric fields — '
+      'PostAuthor entity has no social-validation metric fields in props',
+      () {
+        // PostAuthor.props: id, handle, displayName, avatarUrl — exactly 4.
+        final props = _author.props;
+
+        expect(
+          props.length,
+          4,
+          reason:
+              'PostAuthor.props must have exactly 4 entries — '
+              'no follower count or equivalent metric (CLAUDE.md §2.3)',
+        );
+      },
+    );
+
+    test('PostDto.fromJson does not carry metric fields — '
         'known JSON keys that must be absent', () {
       // These are the metric field names that the backend must never expose
       // on a public DTO and that this DTO must never deserialise.
@@ -118,8 +119,7 @@ void main() {
       }
     });
 
-    test(
-        'PostDto.fromJson round-trip produces a Post entity '
+    test('PostDto.fromJson round-trip produces a Post entity '
         'with no metric fields', () {
       final dto = PostDto.fromJson(_postJson);
       final entity = dto.toEntity();

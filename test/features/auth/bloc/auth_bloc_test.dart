@@ -37,11 +37,9 @@ void main() {
 
   // Register fallback values for named parameters used in when() stubs.
   setUpAll(() {
-    registerFallbackValue(const Session(
-      accessToken: '',
-      refreshToken: '',
-      userId: '',
-    ));
+    registerFallbackValue(
+      const Session(accessToken: '', refreshToken: '', userId: ''),
+    );
   });
 
   group('AuthCheckRequested', () {
@@ -54,18 +52,14 @@ void main() {
         return AuthBloc(authRepository: mockRepo);
       },
       act: (bloc) => bloc.add(const AuthCheckRequested()),
-      expect: () => [
-        const AuthLoading(),
-        const AuthUnauthenticated(),
-      ],
+      expect: () => [const AuthLoading(), const AuthUnauthenticated()],
     );
 
     blocTest<AuthBloc, AuthState>(
       'emits [AuthLoading, AuthAuthenticated] when stored refresh token is valid',
       build: () {
-        when(() => mockRepo.refreshSession()).thenAnswer(
-          (_) async => const Success(_testSession),
-        );
+        when(() => mockRepo.refreshSession())
+            .thenAnswer((_) async => const Success(_testSession));
         return AuthBloc(authRepository: mockRepo);
       },
       act: (bloc) => bloc.add(const AuthCheckRequested()),
@@ -87,10 +81,7 @@ void main() {
         return AuthBloc(authRepository: mockRepo);
       },
       act: (bloc) => bloc.add(const AuthCheckRequested()),
-      expect: () => [
-        const AuthLoading(),
-        const AuthUnauthenticated(),
-      ],
+      expect: () => [const AuthLoading(), const AuthUnauthenticated()],
     );
   });
 
@@ -130,8 +121,7 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async =>
-              const Err(UnauthorizedFailure('invalid credentials')),
+          (_) async => const Err(UnauthorizedFailure('invalid credentials')),
         );
         return AuthBloc(authRepository: mockRepo);
       },
@@ -156,16 +146,12 @@ void main() {
     blocTest<AuthBloc, AuthState>(
       'emits [AuthLoading, AuthUnauthenticated]',
       build: () {
-        when(() => mockRepo.logout()).thenAnswer(
-          (_) async => const Success(null),
-        );
+        when(() => mockRepo.logout())
+            .thenAnswer((_) async => const Success(null));
         return AuthBloc(authRepository: mockRepo);
       },
       act: (bloc) => bloc.add(const AuthLogoutRequested()),
-      expect: () => [
-        const AuthLoading(),
-        const AuthUnauthenticated(),
-      ],
+      expect: () => [const AuthLoading(), const AuthUnauthenticated()],
     );
   });
 
@@ -211,7 +197,8 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => const Err(ConflictFailure('That handle is already taken.')),
+          (_) async =>
+              const Err(ConflictFailure('That handle is already taken.')),
         );
         return AuthBloc(authRepository: mockRepo);
       },

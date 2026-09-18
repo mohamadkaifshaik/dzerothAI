@@ -36,15 +36,30 @@ var hashtagPattern = regexp.MustCompile(`#([a-zA-Z][a-zA-Z0-9_]*)`)
 // Handle characters: letters, digits, underscores, hyphens.
 var mentionPattern = regexp.MustCompile(`@([a-zA-Z0-9][a-zA-Z0-9_-]{1,49})`)
 
+// FollowChecker allows post.Service to check follower relationships without
+// importing the follow package directly, avoiding a circular dependency.
+// follow.Service satisfies this interface via its IsFollowing method.
+type FollowChecker interface {
+	IsFollowing(ctx context.Context, followerID, followedID uuid.UUID) (bool, error)
+}
+
 // Service implements post business logic.
 type Service struct {
-	repo *Repository
-	log  *zap.Logger
+	repo          *Repository
+	log           *zap.Logger
+	followChecker FollowChecker
 }
 
 // NewService constructs a post Service.
 func NewService(repo *Repository, log *zap.Logger) *Service {
 	return &Service{repo: repo, log: log}
+}
+
+// SetFollowChecker injects a FollowChecker dependency. Must be called after
+// NewService and before the first request is served. Concurrency-safe if
+// called during the single-threaded startup phase before the HTTP server starts.
+func (s *Service) SetFollowChecker(fc FollowChecker) {
+	s.followChecker = fc
 }
 
 // CreatePost validates the request, extracts mentions and hashtags, generates a
@@ -211,9 +226,10 @@ func (s *Service) GetPost(ctx context.Context, postID uuid.UUID) (PostDTO, error
 
 // ListPostsByAuthor returns a paginated PostPage for the given author.
 // The server-enforced maximum depth is 200 posts (CLAUDE.md §2.1, no infinite scrolling).
-// When the author's account is private and the caller is not the owner, returns an empty
-// terminated page.
-// TODO(phase-3): check follower relationship for private accounts.
+// When the author's account is private, posts are returned only to the account
+// owner or an approved follower. All other callers receive an empty terminated
+// page. The follow check requires SetFollowChecker to have been called; when no
+// follow checker is configured, non-owner callers are denied as a safe default.
 func (s *Service) ListPostsByAuthor(ctx context.Context, callerID *uuid.UUID, authorID uuid.UUID, cursorStr string) (PostPage, error) {
 	// Private account check.
 	isPrivate, err := s.repo.GetAuthorIsPrivate(ctx, authorID)
@@ -228,8 +244,22 @@ func (s *Service) ListPostsByAuthor(ctx context.Context, callerID *uuid.UUID, au
 	if isPrivate {
 		isOwner := callerID != nil && *callerID == authorID
 		if !isOwner {
-			// TODO(phase-3): check follower relationship before returning empty page.
-			return PostPage{Items: []PostDTO{}, NextCursor: "", Terminated: true}, nil
+			// Phase-3: check follower relationship. Unauthenticated callers (nil
+			// callerID) and authenticated callers who are not approved followers
+			// both receive an empty terminated page — the private account's posts
+			// are not revealed.
+			if callerID == nil || s.followChecker == nil {
+				return PostPage{Items: []PostDTO{}, NextCursor: "", Terminated: true}, nil
+			}
+			isFollowing, err := s.followChecker.IsFollowing(ctx, *callerID, authorID)
+			if err != nil {
+				s.log.Error("post: list by author follow check", zap.Error(err))
+				return PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
+			}
+			if !isFollowing {
+				return PostPage{Items: []PostDTO{}, NextCursor: "", Terminated: true}, nil
+			}
+			// Caller is an approved follower — fall through to fetch posts.
 		}
 	}
 

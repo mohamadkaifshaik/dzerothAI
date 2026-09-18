@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 next`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 next`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
@@ -46,16 +46,21 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 ## Phase 3 — Feeds
 
-- [ ] Home timeline
-- [ ] Inner Circle feed
-- [ ] Discovery feed
-- [ ] Pagination/cursors
-- [ ] Finite content loops
-- [ ] Hard feed termination
-- [ ] “Go Touch Grass” boundary UX
-- [ ] No public validation metrics
+- [x] Home timeline (follower-based, DB-first JOIN, cursor-paginated, finite at 200 items)
+- [ ] Inner Circle feed — deferred; requires separate design
+- [ ] Discovery feed — deferred; requires content ranking logic
+- [x] Pagination/cursors (reuses ADR 0006 FeedCursor contract)
+- [x] Finite content loops (all feeds terminate server-side)
+- [x] Hard feed termination (HomeFeedTerminated / PostFeedTerminated are terminal states)
+- [x] “Go Touch Grass” boundary UX (GoTouchGrassWidget)
+- [x] No public validation metrics (enforced at DTO level, tested via reflection)
+- [x] Follow/follower system (migrations 0007, instant follow, private-account enforcement)
+- [x] Block/mute enforcement (atomic block+unfollow transaction, feed/profile filtering)
+- [x] Bookmarks (owner-scoped, private DTO, paginated list, terminated at 200)
+- [x] Repost idempotency (partial unique index migration 0009)
+- [x] Quote/repost 5-second countdown (PostComposeBloc, cancellable, no bypass path)
 
-**Exit gate:** feeds are bounded, performant, secure, and consistent with Dzeroth rules.
+**Exit gate:** feeds are bounded, performant, secure, and consistent with Dzeroth rules. ✓ (Inner Circle and Discovery feeds deferred — require separate architecture design)
 
 ## Phase 4 — Interactions and discovery
 

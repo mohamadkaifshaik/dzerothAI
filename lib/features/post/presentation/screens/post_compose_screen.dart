@@ -8,6 +8,8 @@ import '../bloc/post_compose_bloc.dart';
 /// Supports post types: 'original', 'reply', 'quote', 'repost'.
 ///
 /// Per CLAUDE.md §2.2:
+/// - Quote and repost actions require a mandatory 5-second countdown before
+///   submission.  The countdown is displayed prominently and cannot be bypassed.
 /// - Quote posts must contain at least 5 distinct words (enforced client-side
 ///   as a UX guard; the backend is authoritative).
 ///
@@ -72,6 +74,10 @@ class _PostComposeScreenState extends State<PostComposeScreen> {
     );
   }
 
+  void _cancelCountdown(BuildContext context) {
+    context.read<PostComposeBloc>().add(const PostComposeCountdownCancelled());
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocListener<PostComposeBloc, PostComposeState>(
@@ -92,6 +98,13 @@ class _PostComposeScreenState extends State<PostComposeScreen> {
           actions: [
             BlocBuilder<PostComposeBloc, PostComposeState>(
               builder: (context, state) {
+                if (state is PostComposeCountdown) {
+                  return _CountdownAction(
+                    secondsRemaining: state.secondsRemaining,
+                    onCancel: () => _cancelCountdown(context),
+                  );
+                }
+
                 final isSubmitting = state is PostComposeSubmitting;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
@@ -112,44 +125,58 @@ class _PostComposeScreenState extends State<PostComposeScreen> {
             ),
           ],
         ),
-        body: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (widget.postType == 'quote') ...[
-                _QuoteNotice(),
-                const SizedBox(height: 12),
-              ],
-              if (!_isRepost) ...[
-                TextField(
-                  controller: _contentController,
-                  autofocus: true,
-                  maxLines: null,
-                  keyboardType: TextInputType.multiline,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    hintText: _hintText(),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    fillColor: Colors.transparent,
-                  ),
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const Spacer(),
-                _CharacterCounter(runeCount: _runeCount, maxRunes: _maxRunes),
-              ] else
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      'Repost this post?',
+        body: BlocBuilder<PostComposeBloc, PostComposeState>(
+          builder: (context, state) {
+            final isCountingDown = state is PostComposeCountdown;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (widget.postType == 'quote') ...[
+                    _QuoteNotice(),
+                    const SizedBox(height: 12),
+                  ],
+                  if (isCountingDown) ...[
+                    _CountdownBanner(
+                      secondsRemaining: state.secondsRemaining,
+                      totalSeconds: state.totalSeconds,
+                      onCancel: () => _cancelCountdown(context),
+                    ),
+                  ] else if (!_isRepost) ...[
+                    TextField(
+                      controller: _contentController,
+                      autofocus: true,
+                      maxLines: null,
+                      keyboardType: TextInputType.multiline,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        hintText: _hintText(),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        fillColor: Colors.transparent,
+                      ),
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
-                  ),
-                ),
-            ],
-          ),
+                    const Spacer(),
+                    _CharacterCounter(
+                      runeCount: _runeCount,
+                      maxRunes: _maxRunes,
+                    ),
+                  ] else
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          'Repost this post?',
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -168,6 +195,113 @@ class _PostComposeScreenState extends State<PostComposeScreen> {
     _ => "What's happening?",
   };
 }
+
+// ---------------------------------------------------------------------------
+// Countdown banner — shown in the body during countdown
+// ---------------------------------------------------------------------------
+
+/// Full-screen body countdown banner displayed during the mandatory 5-second
+/// wait for quote/repost actions (CLAUDE.md §2.2).
+class _CountdownBanner extends StatelessWidget {
+  const _CountdownBanner({
+    required this.secondsRemaining,
+    required this.totalSeconds,
+    required this.onCancel,
+  });
+
+  final int secondsRemaining;
+  final int totalSeconds;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Expanded(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$secondsRemaining',
+              style: theme.textTheme.displayLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              secondsRemaining == 1
+                  ? 'Sharing in $secondsRemaining second...'
+                  : 'Sharing in $secondsRemaining seconds...',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This delay is intentional.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 32),
+            OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Countdown action — shown in the AppBar actions during countdown
+// ---------------------------------------------------------------------------
+
+class _CountdownAction extends StatelessWidget {
+  const _CountdownAction({
+    required this.secondsRemaining,
+    required this.onCancel,
+  });
+
+  final int secondsRemaining;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: theme.colorScheme.primaryContainer,
+            ),
+            child: Text(
+              '$secondsRemaining',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(onPressed: onCancel, child: const Text('Cancel')),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Quote notice
+// ---------------------------------------------------------------------------
 
 class _QuoteNotice extends StatelessWidget {
   @override
@@ -196,6 +330,10 @@ class _QuoteNotice extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Character counter
+// ---------------------------------------------------------------------------
 
 class _CharacterCounter extends StatelessWidget {
   const _CharacterCounter({required this.runeCount, required this.maxRunes});

@@ -74,35 +74,33 @@ void main() {
 
   group('login', () {
     test(
-        'stores refresh token in SecureStorage after successful login',
-        () async {
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((_) async => _okResponse(_loginResponseData));
+      'stores refresh token in SecureStorage after successful login',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            any(),
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okResponse(_loginResponseData));
 
-      when(
-        () => mockStorage.writeRefreshToken(any()),
-      ).thenAnswer((_) async {});
+        when(() => mockStorage.writeRefreshToken(any()))
+            .thenAnswer((_) async {});
 
-      final result = await repo.login(
-        email: 'user@example.com',
-        password: 'password123',
-      );
+        final result = await repo.login(
+          email: 'user@example.com',
+          password: 'password123',
+        );
 
-      expect(result, isA<Success<dynamic>>());
-      verify(() => mockStorage.writeRefreshToken('raw-refresh-hex-token'))
-          .called(1);
-    });
+        expect(result, isA<Success<dynamic>>());
+        verify(() => mockStorage.writeRefreshToken('raw-refresh-hex-token'))
+            .called(1);
+      },
+    );
 
     test('returns UnauthorizedFailure for 401 response', () async {
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
+        () =>
+            mockDio.post<Map<String, dynamic>>(any(), data: any(named: 'data')),
       ).thenThrow(
         _dioError(401, {
           'error': {'code': 'UNAUTHORIZED', 'message': 'invalid credentials'},
@@ -122,17 +120,15 @@ void main() {
 
   group('logout', () {
     test('clears refresh token from SecureStorage', () async {
-      when(
-        () => mockDio.post<void>(any()),
-      ).thenAnswer((_) async => Response<void>(
-            data: null,
-            statusCode: 204,
-            requestOptions: RequestOptions(path: '/'),
-          ));
+      when(() => mockDio.post<void>(any())).thenAnswer(
+        (_) async => Response<void>(
+          data: null,
+          statusCode: 204,
+          requestOptions: RequestOptions(path: '/'),
+        ),
+      );
 
-      when(
-        () => mockStorage.deleteRefreshToken(),
-      ).thenAnswer((_) async {});
+      when(() => mockStorage.deleteRefreshToken()).thenAnswer((_) async {});
 
       final result = await repo.logout();
 
@@ -140,21 +136,15 @@ void main() {
       verify(() => mockStorage.deleteRefreshToken()).called(1);
     });
 
-    test(
-        'clears refresh token locally even when server call fails with NetworkFailure',
-        () async {
-      when(
-        () => mockDio.post<void>(any()),
-      ).thenThrow(
+    test('clears refresh token locally even when server call fails with NetworkFailure', () async {
+      when(() => mockDio.post<void>(any())).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: '/'),
           type: DioExceptionType.connectionError,
         ),
       );
 
-      when(
-        () => mockStorage.deleteRefreshToken(),
-      ).thenAnswer((_) async {});
+      when(() => mockStorage.deleteRefreshToken()).thenAnswer((_) async {});
 
       final result = await repo.logout();
 
@@ -166,20 +156,15 @@ void main() {
 
   group('refreshSession', () {
     test('reads refresh token from SecureStorage', () async {
-      when(
-        () => mockStorage.readRefreshToken(),
-      ).thenAnswer((_) async => 'stored-refresh-token');
+      when(() => mockStorage.readRefreshToken())
+          .thenAnswer((_) async => 'stored-refresh-token');
 
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
+        () =>
+            mockDio.post<Map<String, dynamic>>(any(), data: any(named: 'data')),
       ).thenAnswer((_) async => _okResponse(_loginResponseData));
 
-      when(
-        () => mockStorage.writeRefreshToken(any()),
-      ).thenAnswer((_) async {});
+      when(() => mockStorage.writeRefreshToken(any())).thenAnswer((_) async {});
 
       final result = await repo.refreshSession();
 
@@ -188,92 +173,89 @@ void main() {
     });
 
     test(
-        'returns UnauthorizedFailure and does not call API when no stored token',
-        () async {
-      when(
-        () => mockStorage.readRefreshToken(),
-      ).thenAnswer((_) async => null);
+      'returns UnauthorizedFailure and does not call API when no stored token',
+      () async {
+        when(() => mockStorage.readRefreshToken())
+            .thenAnswer((_) async => null);
 
-      final result = await repo.refreshSession();
+        final result = await repo.refreshSession();
 
-      expect(result, isA<Err<dynamic>>());
-      final err = result as Err;
-      expect(err.failure, isA<UnauthorizedFailure>());
-      // API should never be called if there is no stored token.
-      verifyNever(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
-      );
-    });
+        expect(result, isA<Err<dynamic>>());
+        final err = result as Err;
+        expect(err.failure, isA<UnauthorizedFailure>());
+        // API should never be called if there is no stored token.
+        verifyNever(
+          () => mockDio.post<Map<String, dynamic>>(
+            any(),
+            data: any(named: 'data'),
+          ),
+        );
+      },
+    );
 
     test(
-        'deletes stored refresh token and returns UnauthorizedFailure on 401',
-        () async {
-      when(
-        () => mockStorage.readRefreshToken(),
-      ).thenAnswer((_) async => 'expired-token');
+      'deletes stored refresh token and returns UnauthorizedFailure on 401',
+      () async {
+        when(() => mockStorage.readRefreshToken())
+            .thenAnswer((_) async => 'expired-token');
 
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
-      ).thenThrow(
-        _dioError(401, {
-          'error': {
-            'code': 'UNAUTHORIZED',
-            'message': 'refresh token expired',
-          },
-        }),
-      );
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            any(),
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(
+          _dioError(401, {
+            'error': {
+              'code': 'UNAUTHORIZED',
+              'message': 'refresh token expired',
+            },
+          }),
+        );
 
-      when(
-        () => mockStorage.deleteRefreshToken(),
-      ).thenAnswer((_) async {});
+        when(() => mockStorage.deleteRefreshToken()).thenAnswer((_) async {});
 
-      final result = await repo.refreshSession();
+        final result = await repo.refreshSession();
 
-      expect(result, isA<Err<dynamic>>());
-      final err = result as Err;
-      expect(err.failure, isA<UnauthorizedFailure>());
-      verify(() => mockStorage.deleteRefreshToken()).called(1);
-    });
+        expect(result, isA<Err<dynamic>>());
+        final err = result as Err;
+        expect(err.failure, isA<UnauthorizedFailure>());
+        verify(() => mockStorage.deleteRefreshToken()).called(1);
+      },
+    );
   });
 
   group('register', () {
-    test('stores refresh token in SecureStorage after successful registration',
-        () async {
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((_) async => _okResponse(_loginResponseData));
+    test(
+      'stores refresh token in SecureStorage after successful registration',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            any(),
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okResponse(_loginResponseData));
 
-      when(
-        () => mockStorage.writeRefreshToken(any()),
-      ).thenAnswer((_) async {});
+        when(() => mockStorage.writeRefreshToken(any()))
+            .thenAnswer((_) async {});
 
-      final result = await repo.register(
-        handle: 'newuser',
-        displayName: 'New User',
-        email: 'new@example.com',
-        password: 'StrongPass1!',
-      );
+        final result = await repo.register(
+          handle: 'newuser',
+          displayName: 'New User',
+          email: 'new@example.com',
+          password: 'StrongPass1!',
+        );
 
-      expect(result, isA<Success<dynamic>>());
-      verify(() => mockStorage.writeRefreshToken('raw-refresh-hex-token'))
-          .called(1);
-    });
+        expect(result, isA<Success<dynamic>>());
+        verify(() => mockStorage.writeRefreshToken('raw-refresh-hex-token'))
+            .called(1);
+      },
+    );
 
     test('returns ConflictFailure for 409 response (handle taken)', () async {
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          any(),
-          data: any(named: 'data'),
-        ),
+        () =>
+            mockDio.post<Map<String, dynamic>>(any(), data: any(named: 'data')),
       ).thenThrow(
         _dioError(409, {
           'error': {

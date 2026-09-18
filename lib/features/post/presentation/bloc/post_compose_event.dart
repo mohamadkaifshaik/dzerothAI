@@ -30,3 +30,23 @@ final class PostComposeSubmitted extends PostComposeEvent {
   @override
   List<Object?> get props => [postType, content, parentId, quotedPostId];
 }
+
+/// Fired each second during the mandatory 5-second countdown (CLAUDE.md §2.2).
+///
+/// [remaining] counts down from 5 to 0 inclusive.  When 0 the BLoC proceeds
+/// with the actual submission.
+final class PostComposeCountdownTicked extends PostComposeEvent {
+  const PostComposeCountdownTicked(this.remaining);
+
+  final int remaining;
+
+  @override
+  List<Object?> get props => [remaining];
+}
+
+/// Fired if the user cancels during the 5-second countdown.
+///
+/// The BLoC will cancel the timer and return to [PostComposeInitial].
+final class PostComposeCountdownCancelled extends PostComposeEvent {
+  const PostComposeCountdownCancelled();
+}

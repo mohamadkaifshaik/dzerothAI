@@ -30,6 +30,12 @@ class AppShell extends StatelessWidget {
       route: '/home/notifications',
     ),
     _TabItem(
+      icon: Icons.bookmark_border_outlined,
+      selectedIcon: Icons.bookmark,
+      label: 'Bookmarks',
+      route: '/bookmarks',
+    ),
+    _TabItem(
       icon: Icons.person_outline,
       selectedIcon: Icons.person,
       label: 'Profile',
