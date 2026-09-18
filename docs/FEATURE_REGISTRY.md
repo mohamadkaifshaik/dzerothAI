@@ -20,12 +20,12 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-001 | Identity | Authentication/session | PLANNED | Phase 1 |
 | F-002 | Profile | User profiles | PLANNED | Phase 1 |
 | F-003 | Profile | Avatar/header/bio | PLANNED | Phase 1 |
-| F-004 | Social | Posts | PLANNED | Phase 2 |
-| F-005 | Social | Replies | PLANNED | Phase 2 |
-| F-006 | Social | Threads | PLANNED | Phase 2 |
-| F-007 | Social | Mentions | PLANNED | Phase 2 |
-| F-008 | Social | Hashtags/topics | PLANNED | Phase 2 |
-| F-009 | Media | Post media | PLANNED | Phase 2 |
+| F-004 | Social | Posts | IMPLEMENTED | Phase 2 — `internal/post/`, migrations 0004–0006, Flutter `features/post/` |
+| F-005 | Social | Replies | IMPLEMENTED | Phase 2 — `post_type=reply`, thread endpoint, PostThreadView widget |
+| F-006 | Social | Threads | IMPLEMENTED | Phase 2 — `thread_root_id` denormalization, `GET /posts/{postId}/thread`, finite depth |
+| F-007 | Social | Mentions | IMPLEMENTED | Phase 2 — mention extraction into `post_mentions` join table (migration 0005) |
+| F-008 | Social | Hashtags/topics | IMPLEMENTED | Phase 2 — normalized lowercase extraction into `post_hashtags` join table (migration 0006) |
+| F-009 | Media | Post media | BLOCKED | Blocked on media storage provider decision (OPEN-1) |
 | F-010 | Feed | Home timeline | PLANNED | Phase 3 |
 | F-011 | Feed | Inner Circle feed | PLANNED | Phase 3 |
 | F-012 | Feed | Discovery feed | PLANNED | Phase 3 |

@@ -103,13 +103,135 @@ Authorization: Bearer <jwt_access_token>
 | Identity | `PUT` | `/api/v1/me/header` | PROPOSED — BLOCKED | Header image upload (multipart). Blocked on media storage provider decision (OPEN-1). |
 | Profiles | `GET` | `/api/v1/users/:id` | PROPOSED | Get a user's public profile by UUID. Requires auth. Response must not include public validation metrics. |
 
-### Phase 2+ (not yet designed — do not implement)
+### Phase 2 — Posts and conversations
+
+| Area | Method | Endpoint | Status | Notes |
+|---|---|---|---|---|
+| Posts | `POST` | `/api/v1/posts` | IMPLEMENTED | Auth required. Rate limited: 30 requests per 15 min per user (fail-closed Redis policy). See request/response below. |
+| Posts | `GET` | `/api/v1/posts/{postId}` | IMPLEMENTED | No auth required. Returns single post. Public DTO — zero social-validation metrics. |
+| Posts | `DELETE` | `/api/v1/posts/{postId}` | IMPLEMENTED | Auth required. Owner only. Soft delete (sets `is_deleted` flag). |
+| Posts | `GET` | `/api/v1/posts/{postId}/thread` | IMPLEMENTED | No auth required. Paginated thread replies. Cursor-based. `terminated: true` when server-side max depth (100) is reached. |
+| Posts | `GET` | `/api/v1/users/{userId}/posts` | IMPLEMENTED | No auth required. Paginated author post list. Cursor-based. `terminated: true` when server-side max (200) is reached. |
+
+#### `POST /api/v1/posts` — Create post
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Request body:**
+
+```json
+{
+  "content": "Post text up to 500 Unicode code points.",
+  "post_type": "original | reply | quote | repost",
+  "parent_post_id": "<uuid-v7 | null>",
+  "quoted_post_id": "<uuid-v7 | null>"
+}
+```
+
+- `content`: required for `original`, `reply`, and `quote`. Must not exceed 500 Unicode code points.
+- `post_type`: required. One of `original`, `reply`, `quote`, `repost`.
+- `parent_post_id`: required for `reply`. The post being replied to.
+- `quoted_post_id`: required for `quote`. The post being quoted.
+- For `quote` posts, `content` must contain at least 5 distinct words (Dzeroth §2.2). The five-second client countdown is a UI concern; the backend enforces the word-count rule independently.
+- Mentions (`@handle`) and hashtags (`#tag`) are extracted and persisted automatically.
+
+**Response:** `201 Created` — single-resource envelope containing the created `PostDTO`.
+
+**Key behaviors:**
+
+- 500 Unicode code-point limit enforced at PostgreSQL (CHECK), Go service, and API validation layers.
+- Five-distinct-word rule enforced server-side for `quote` post type.
+- Response `PostDTO` contains zero public social-validation metrics (no likes, impressions, bookmark counts, or follower counts).
+- Rate limit exceeded returns `429 Too Many Requests` with standard error shape.
+
+#### `GET /api/v1/posts/{postId}` — Get single post
+
+**Auth:** none required.
+
+**Response:** `200 OK` — single-resource envelope containing `PostDTO`.
+
+**PostDTO shape:**
+
+```json
+{
+  "id": "<uuid-v7>",
+  "content": "Post text.",
+  "post_type": "original | reply | quote | repost",
+  "author": {
+    "id": "<uuid-v7>",
+    "handle": "username",
+    "display_name": "Display Name"
+  },
+  "parent_post_id": "<uuid-v7 | null>",
+  "quoted_post_id": "<uuid-v7 | null>",
+  "thread_root_id": "<uuid-v7 | null>",
+  "created_at": "2026-09-18T12:00:00Z",
+  "is_deleted": false
+}
+```
+
+- No likes, impressions, bookmark counts, follower counts, or equivalent metrics are present in this DTO.
+
+#### `DELETE /api/v1/posts/{postId}` — Soft delete post
+
+**Auth:** `Authorization: Bearer <token>` required. Caller must own the post.
+
+**Response:** `204 No Content`.
+
+**Key behaviors:**
+
+- Sets `is_deleted = true` on the post row; does not physically remove the record.
+- Returns `403 Forbidden` if the authenticated user does not own the post.
+- Returns `404 Not Found` if the post does not exist or is already deleted.
+
+#### `GET /api/v1/posts/{postId}/thread` — Get thread replies
+
+**Auth:** none required.
+
+**Query parameters:**
+
+- `cursor` (optional): opaque base64url cursor for pagination.
+
+**Response:** `200 OK` — pagination envelope.
+
+```json
+{
+  "data": [ /* array of PostDTO */ ],
+  "pagination": {
+    "next_cursor": "<base64url | null>",
+    "has_more": false,
+    "terminated": true
+  }
+}
+```
+
+**Key behaviors:**
+
+- `terminated: true` when server-side max depth (100 replies) is reached. Flutter client must stop requesting and display the feed boundary UI.
+- Finite feed — no infinite scrolling.
+
+#### `GET /api/v1/users/{userId}/posts` — Get author post list
+
+**Auth:** none required.
+
+**Query parameters:**
+
+- `cursor` (optional): opaque base64url cursor for pagination.
+
+**Response:** `200 OK` — pagination envelope (same shape as thread endpoint above).
+
+**Key behaviors:**
+
+- `terminated: true` when server-side max (200 posts) is reached. Flutter client must stop requesting and display the feed boundary UI.
+- Finite feed — no infinite scrolling.
+- Response items are `PostDTO`; no public social-validation metrics.
+
+### Phase 3+ (not yet designed — do not implement)
 
 | Area | Endpoint | Status | Notes |
 |---|---|---|---|
 | Feed | `/api/v1/feeds/inner-circle` | PROPOSED | Define only after Phase 3 architecture. |
 | Feed | `/api/v1/feeds/discovery` | PROPOSED | Define only after Phase 3 architecture. |
-| Posts | Post endpoints | PROPOSED | Define only after Phase 2 architecture. |
 | Search | Search endpoints | PROPOSED | Define only after Phase 4 architecture. |
 | Notifications | Notification endpoints | PROPOSED | Define only after Phase 4 architecture. |
 

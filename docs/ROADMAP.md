@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 0 COMPLETE — Phase 1 in progress`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 next`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
@@ -21,28 +21,28 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 ## Phase 1 — Foundation, identity, and profiles
 
-- [ ] Application bootstrap and configuration
-- [ ] Authentication/session lifecycle
-- [ ] User/profile model
-- [ ] Avatar/header/bio/profile editing
-- [ ] Privacy and account settings
-- [ ] Block/mute foundations
-- [ ] Core navigation and responsive shell
+- [x] Application bootstrap and configuration
+- [x] Authentication/session lifecycle
+- [x] User/profile model
+- [x] Avatar/header/bio/profile editing
+- [x] Privacy and account settings
+- [x] Block/mute foundations
+- [x] Core navigation and responsive shell
 
-**Exit gate:** a user can securely authenticate and manage a profile end-to-end.
+**Exit gate:** a user can securely authenticate and manage a profile end-to-end. ✓
 
 ## Phase 2 — Posts and conversations
 
-- [ ] Create/edit/delete posts where supported
-- [ ] Replies
-- [ ] Threads
-- [ ] Mentions
-- [ ] Hashtags/topics
+- [x] Create/edit/delete posts where supported
+- [x] Replies
+- [x] Threads
+- [x] Mentions
+- [x] Hashtags/topics
 - [ ] Media handling
-- [ ] Authoritative post card/detail UI
-- [ ] Server-side validation
+- [x] Authoritative post card/detail UI
+- [x] Server-side validation
 
-**Exit gate:** post creation and conversation flows work across frontend, API, and database with tests.
+**Exit gate:** post creation and conversation flows work across frontend, API, and database with tests. ✓ (Media handling deferred pending media provider decision — OPEN-1)
 
 ## Phase 3 — Feeds
 

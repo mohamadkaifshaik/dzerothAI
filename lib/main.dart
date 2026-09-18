@@ -8,6 +8,8 @@ import 'core/router/app_router.dart';
 import 'core/storage/secure_storage.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
+import 'features/post/data/repositories/post_repository_impl.dart';
+import 'features/post/domain/repositories/post_repository.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
 import 'features/profile/domain/repositories/profile_repository.dart';
 
@@ -72,10 +74,16 @@ void main() async {
   ProfileRepository profileRepositoryFactory() =>
       ProfileRepositoryImpl(dio: dio);
 
+  // --- Post repository factory ---
+  // Each screen that needs post data gets its own repository backed by the
+  // shared authenticated Dio instance.
+  PostRepository postRepositoryFactory() => PostRepositoryImpl(dio: dio);
+
   // --- Router ---
   final router = createAppRouter(
     authBloc: authBloc,
     profileRepositoryFactory: profileRepositoryFactory,
+    postRepositoryFactory: postRepositoryFactory,
   );
 
   runApp(DzerothApp(authBloc: authBloc, router: router));

@@ -7,6 +7,12 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
+import '../../features/post/domain/repositories/post_repository.dart';
+import '../../features/post/presentation/bloc/post_compose_bloc.dart';
+import '../../features/post/presentation/bloc/post_detail_bloc.dart';
+import '../../features/post/presentation/bloc/post_feed_bloc.dart';
+import '../../features/post/presentation/screens/post_compose_screen.dart';
+import '../../features/post/presentation/screens/post_detail_screen.dart';
 import '../../features/profile/domain/repositories/profile_repository.dart';
 import '../../features/profile/presentation/bloc/profile_bloc.dart';
 import '../../features/profile/presentation/screens/edit_profile_screen.dart';
@@ -37,6 +43,7 @@ class GoRouterRefreshStream extends ChangeNotifier {
 GoRouter createAppRouter({
   required AuthBloc authBloc,
   required ProfileRepository Function() profileRepositoryFactory,
+  required PostRepository Function() postRepositoryFactory,
 }) {
   final refreshStream = GoRouterRefreshStream(authBloc.stream);
 
@@ -156,6 +163,58 @@ GoRouter createAppRouter({
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsPlaceholderScreen(),
+      ),
+
+      // Post compose — requires authentication; outside shell (full-page).
+      GoRoute(
+        path: '/posts/new',
+        redirect: (context, state) {
+          final authState = authBloc.state;
+          if (authState is! AuthAuthenticated) return '/auth/login';
+          return null;
+        },
+        builder: (context, state) {
+          final postType = state.uri.queryParameters['type'] ?? 'original';
+          final parentId = state.uri.queryParameters['parent_id'];
+          final quotedPostId = state.uri.queryParameters['quoted_post_id'];
+          return BlocProvider(
+            create: (_) =>
+                PostComposeBloc(postRepository: postRepositoryFactory()),
+            child: PostComposeScreen(
+              postType: postType,
+              parentId: parentId,
+              quotedPostId: quotedPostId,
+            ),
+          );
+        },
+      ),
+
+      // Post detail — public; outside shell (full-page).
+      GoRoute(
+        path: '/posts/:postId',
+        builder: (context, state) {
+          final postId = state.pathParameters['postId']!;
+          final postRepository = postRepositoryFactory();
+          return MultiBlocProvider(
+            providers: [
+              BlocProvider(
+                create: (_) =>
+                    PostDetailBloc(postRepository: postRepository)
+                      ..add(PostDetailLoadRequested(postId: postId)),
+              ),
+              BlocProvider(
+                create: (_) => PostFeedBloc(postRepository: postRepository)
+                  ..add(
+                    PostFeedLoadRequested(
+                      subjectId: postId,
+                      feedType: FeedType.threadReplies,
+                    ),
+                  ),
+              ),
+            ],
+            child: PostDetailScreen(postId: postId),
+          );
+        },
       ),
     ],
   );

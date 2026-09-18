@@ -51,6 +51,29 @@ type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
+// APIError is a typed error returned by service functions. It carries a
+// machine-readable Code and a human-readable Message. Handlers convert it to
+// an ErrorResponse via ToResponse. Using a named type (rather than *ErrorResponse
+// directly) avoids the Go restriction that a struct field and method cannot share
+// a name.
+type APIError struct {
+	Code    string
+	Message string
+}
+
+// Error implements the error interface.
+func (e *APIError) Error() string { return e.Code + ": " + e.Message }
+
+// ToResponse converts an APIError to an ErrorResponse for rendering.
+func (e *APIError) ToResponse() *ErrorResponse {
+	return New(e.Code, e.Message)
+}
+
+// NewAPIError constructs an *APIError. Service layers return this as an error.
+func NewAPIError(code, message string) *APIError {
+	return &APIError{Code: code, Message: message}
+}
+
 // New constructs an ErrorResponse with the given code and message and no details.
 func New(code, message string) *ErrorResponse {
 	return &ErrorResponse{

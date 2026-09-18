@@ -30,6 +30,7 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/config"
 	platformDB "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/db"
 	platformRedis "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/redis"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/user"
 )
 
@@ -95,9 +96,12 @@ func run() error {
 	// ── 6. Wire services ──────────────────────────────────────────────────────
 	authSvc := auth.NewService(pool, cfg.JWTSecret, log)
 	userSvc := user.NewService(pool, log)
+	postRepo := post.NewRepository(pool)
+	postSvc := post.NewService(postRepo, log)
 
 	authHandler := auth.NewHandler(authSvc, log)
 	userHandler := user.NewHandler(userSvc, log)
+	postHandler := post.NewHandler(postSvc, log)
 
 	// ── 7. Build router ───────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -120,6 +124,7 @@ func run() error {
 	r.Route("/api/v1", func(r chi.Router) {
 		authHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 		userHandler.RegisterRoutes(r, cfg.JWTSecret)
+		postHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 	})
 
 	// ── 9. Start HTTP server ──────────────────────────────────────────────────
