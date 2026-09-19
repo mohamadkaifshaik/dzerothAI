@@ -19,7 +19,8 @@ var testSecret = []byte("test-secret-that-is-at-least-32-bytes-long!")
 
 func TestGenerateAndValidateAccessToken_ValidToken(t *testing.T) {
 	userID := uuid.New()
-	tokenStr, err := GenerateAccessToken(userID, testSecret)
+	sessionID := uuid.New()
+	tokenStr, err := GenerateAccessToken(userID, sessionID, testSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken returned unexpected error: %v", err)
 	}
@@ -34,6 +35,9 @@ func TestGenerateAndValidateAccessToken_ValidToken(t *testing.T) {
 
 	if claims.Subject != userID.String() {
 		t.Errorf("claims.Subject = %q, want %q", claims.Subject, userID.String())
+	}
+	if claims.SessionID != sessionID {
+		t.Errorf("claims.SessionID = %v, want %v", claims.SessionID, sessionID)
 	}
 }
 
@@ -65,7 +69,7 @@ func TestValidateAccessToken_ExpiredTokenIsRejected(t *testing.T) {
 
 func TestValidateAccessToken_WrongSignatureIsRejected(t *testing.T) {
 	userID := uuid.New()
-	tokenStr, err := GenerateAccessToken(userID, testSecret)
+	tokenStr, err := GenerateAccessToken(userID, uuid.New(), testSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -80,7 +84,7 @@ func TestValidateAccessToken_WrongSignatureIsRejected(t *testing.T) {
 
 func TestValidateAccessToken_TamperedPayloadIsRejected(t *testing.T) {
 	userID := uuid.New()
-	tokenStr, err := GenerateAccessToken(userID, testSecret)
+	tokenStr, err := GenerateAccessToken(userID, uuid.New(), testSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -104,8 +108,9 @@ func TestValidateAccessToken_TamperedPayloadIsRejected(t *testing.T) {
 
 func TestGenerateAccessToken_ClaimsContent(t *testing.T) {
 	userID := uuid.New()
+	sessionID := uuid.New()
 	before := time.Now().UTC()
-	tokenStr, err := GenerateAccessToken(userID, testSecret)
+	tokenStr, err := GenerateAccessToken(userID, sessionID, testSecret)
 	after := time.Now().UTC()
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
@@ -128,6 +133,11 @@ func TestGenerateAccessToken_ClaimsContent(t *testing.T) {
 	}
 	if jtiParsed.Version() != 4 {
 		t.Errorf("jti UUID version = %d, want 4", jtiParsed.Version())
+	}
+
+	// sid claim must equal the provided session UUID.
+	if claims.SessionID != sessionID {
+		t.Errorf("claims.SessionID = %v, want %v", claims.SessionID, sessionID)
 	}
 
 	// exp must be approximately now + 15 minutes.

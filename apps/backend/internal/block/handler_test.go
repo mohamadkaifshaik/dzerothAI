@@ -24,7 +24,7 @@ import (
 
 // signTestToken creates a valid access JWT for the given user ID.
 func signTestToken(userID uuid.UUID, secret []byte) (string, error) {
-	return auth.GenerateAccessToken(userID, secret)
+	return auth.GenerateAccessToken(userID, uuid.New(), secret)
 }
 
 // buildChiRequest builds an *http.Request with chi URL params injected so

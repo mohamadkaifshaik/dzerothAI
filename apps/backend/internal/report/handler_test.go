@@ -126,7 +126,7 @@ var testJWTSecret = []byte("handler-test-secret-32byteslong!!")
 
 func bearerToken(t *testing.T, userID uuid.UUID) string {
 	t.Helper()
-	tok, err := auth.GenerateAccessToken(userID, testJWTSecret)
+	tok, err := auth.GenerateAccessToken(userID, uuid.New(), testJWTSecret)
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}

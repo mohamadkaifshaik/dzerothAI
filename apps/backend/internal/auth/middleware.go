@@ -22,6 +22,7 @@ type contextKey int
 const (
 	ctxKeyUserID     contextKey = iota
 	ctxKeySessionJTI contextKey = iota
+	ctxKeySessionID  contextKey = iota
 )
 
 // UserIDFromContext retrieves the authenticated user's UUID from the request context.
@@ -36,6 +37,18 @@ func UserIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 func SessionJTIFromContext(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(ctxKeySessionJTI).(string)
 	return v, ok
+}
+
+// SessionIDFromContext retrieves the sessions row UUID (sid claim) from the request context.
+// Returns (sessionID, true) if the token carried a non-nil sid claim, (uuid.Nil, false) otherwise.
+// A zero UUID indicates the token predates the sid claim (issued before Phase 8A-3); callers
+// should reject such tokens for sensitive operations such as single-session logout.
+func SessionIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	v, ok := ctx.Value(ctxKeySessionID).(uuid.UUID)
+	if !ok || v == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return v, true
 }
 
 // JWTMiddleware extracts and validates the Bearer JWT from the Authorization header.
@@ -75,6 +88,7 @@ func JWTMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
 
 			ctx := context.WithValue(r.Context(), ctxKeyUserID, userID)
 			ctx = context.WithValue(ctx, ctxKeySessionJTI, claims.ID)
+			ctx = context.WithValue(ctx, ctxKeySessionID, claims.SessionID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

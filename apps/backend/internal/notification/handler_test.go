@@ -121,7 +121,7 @@ var notifTestJWTSecret = []byte("notif-handler-test-secret-32byt!!")
 
 func notifBearerToken(t *testing.T, userID uuid.UUID) string {
 	t.Helper()
-	tok, err := auth.GenerateAccessToken(userID, notifTestJWTSecret)
+	tok, err := auth.GenerateAccessToken(userID, uuid.New(), notifTestJWTSecret)
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}

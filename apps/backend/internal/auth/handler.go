@@ -131,25 +131,14 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // logout handles POST /api/v1/auth/logout (requires JWT middleware).
-// Extracts the session JTI from the context (set by JWTMiddleware) and deletes the session.
-// Returns HTTP 204 No Content.
+// Extracts the session UUID from the "sid" claim (set in context by JWTMiddleware)
+// and deletes only that session row, leaving all other active sessions for the same
+// user intact. Returns HTTP 204 No Content on success.
+//
+// Backward compatibility: tokens issued before Phase 8A-3 do not carry a "sid" claim
+// (SessionID == uuid.Nil). Such tokens are rejected with 401 rather than silently
+// revoking all sessions (fail-safe behavior).
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	// The logout handler uses the session JTI as the session identifier.
-	// Per ADR 0005: sessions.id (UUID v7) and the JWT jti (UUID v4) are separate values.
-	// For logout we delete the session by its database ID. However the JWT only carries
-	// the user ID (sub) and jti; the session database row is looked up by the jti stored
-	// in context. Since jti != sessions.id we must look up the session by jti or by
-	// user+token combination. The safest approach for Phase 1 logout is to delete all
-	// sessions for the authenticated user OR require the client to supply the refresh token.
-	//
-	// Per spec: "extract session ID from JWT jti; call service.Logout".
-	// The jti is a UUID v4 and does not map directly to sessions.id (UUID v7).
-	// To be consistent with the spec intent (revoking the current session) we use the
-	// authenticated user ID and delete the session identified by the jti value we stored
-	// in context at login time. Since we don't persist jti→session mapping, Phase 1
-	// logout deletes all sessions for the user. This is a safe, conservative behavior.
-	// TODO(phase-2): persist jti→session_id mapping to support single-session logout.
-
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok {
 		apierror.Render(w, http.StatusUnauthorized,
@@ -157,7 +146,15 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := DeleteAllUserSessions(r.Context(), h.svc.pool, userID); err != nil {
+	sessionID, ok := SessionIDFromContext(r.Context())
+	if !ok {
+		// Token predates the sid claim — reject rather than revoking all sessions.
+		apierror.Render(w, http.StatusUnauthorized,
+			apierror.New(apierror.CodeUnauthorized, "Token does not carry a session identifier. Please re-authenticate."))
+		return
+	}
+
+	if err := h.svc.Logout(r.Context(), sessionID, userID); err != nil {
 		h.log.Error("logout failed", ctxlog.RequestIDField(r.Context()), zap.Error(err))
 		apierror.Render(w, http.StatusInternalServerError,
 			apierror.New(apierror.CodeInternal, "An unexpected error occurred."))

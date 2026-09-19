@@ -162,7 +162,7 @@ var testJWTSecret = []byte("bookmark-handler-test-secret-32b!")
 
 func makeAuthedRequest(t *testing.T, method, target string, userID uuid.UUID) *http.Request {
 	t.Helper()
-	tokenStr, err := auth.GenerateAccessToken(userID, testJWTSecret)
+	tokenStr, err := auth.GenerateAccessToken(userID, uuid.New(), testJWTSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken: %v", err)
 	}

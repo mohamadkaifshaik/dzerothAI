@@ -50,7 +50,7 @@ func TestJWTMiddleware_ValidTokenCallsNextHandler(t *testing.T) {
 	secret := testSecret
 	userID := uuid.New()
 
-	tokenStr, err := GenerateAccessToken(userID, secret)
+	tokenStr, err := GenerateAccessToken(userID, uuid.New(), secret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestJWTMiddleware_ValidTokenSetsUserIDInContext(t *testing.T) {
 	secret := testSecret
 	userID := uuid.New()
 
-	tokenStr, err := GenerateAccessToken(userID, secret)
+	tokenStr, err := GenerateAccessToken(userID, uuid.New(), secret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -106,8 +106,9 @@ func TestJWTMiddleware_ValidTokenSetsUserIDInContext(t *testing.T) {
 func TestJWTMiddleware_ValidTokenSetsSessionJTIInContext(t *testing.T) {
 	secret := testSecret
 	userID := uuid.New()
+	sessionID := uuid.New()
 
-	tokenStr, err := GenerateAccessToken(userID, secret)
+	tokenStr, err := GenerateAccessToken(userID, sessionID, secret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -236,7 +237,7 @@ func TestJWTMiddleware_ExpiredToken_Returns401(t *testing.T) {
 
 func TestJWTMiddleware_TamperedToken_Returns401(t *testing.T) {
 	userID := uuid.New()
-	tokenStr, err := GenerateAccessToken(userID, testSecret)
+	tokenStr, err := GenerateAccessToken(userID, uuid.New(), testSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -322,6 +323,106 @@ func TestSessionJTIFromContext_ReturnsCorrectValueWhenSet(t *testing.T) {
 	}
 	if got != jti {
 		t.Errorf("got %q, want %q", got, jti)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SessionIDFromContext — without middleware
+// ---------------------------------------------------------------------------
+
+func TestSessionIDFromContext_ReturnsFalseWhenNotSet(t *testing.T) {
+	ctx := context.Background()
+	_, ok := SessionIDFromContext(ctx)
+	if ok {
+		t.Fatal("SessionIDFromContext returned true on an empty context")
+	}
+}
+
+func TestSessionIDFromContext_ReturnsFalseForNilUUID(t *testing.T) {
+	// A zero UUID (uuid.Nil) must not be treated as a valid session identifier.
+	ctx := context.WithValue(context.Background(), ctxKeySessionID, uuid.Nil)
+	_, ok := SessionIDFromContext(ctx)
+	if ok {
+		t.Fatal("SessionIDFromContext returned true for uuid.Nil — zero UUID is not a valid session")
+	}
+}
+
+func TestSessionIDFromContext_ReturnsCorrectValueWhenSet(t *testing.T) {
+	sid := uuid.New()
+	ctx := context.WithValue(context.Background(), ctxKeySessionID, sid)
+	got, ok := SessionIDFromContext(ctx)
+	if !ok {
+		t.Fatal("SessionIDFromContext returned false when a non-nil session ID was set")
+	}
+	if got != sid {
+		t.Errorf("got %v, want %v", got, sid)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JWTMiddleware — session ID propagation
+// ---------------------------------------------------------------------------
+
+func TestJWTMiddleware_ValidTokenSetsSessionIDInContext(t *testing.T) {
+	secret := testSecret
+	userID := uuid.New()
+	sessionID := uuid.New()
+
+	tokenStr, err := GenerateAccessToken(userID, sessionID, secret)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken error: %v", err)
+	}
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(secret)(sentinel)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if !sentinel.called {
+		t.Fatal("next handler was not called for a valid token")
+	}
+
+	got, ok := SessionIDFromContext(sentinel.ctx)
+	if !ok {
+		t.Fatal("SessionIDFromContext returned false — session ID not propagated by JWTMiddleware")
+	}
+	if got != sessionID {
+		t.Errorf("context session ID = %v, want %v", got, sessionID)
+	}
+}
+
+func TestJWTMiddleware_TokenWithNilSessionID_SessionIDFromContextReturnsFalse(t *testing.T) {
+	// A token crafted with SessionID == uuid.Nil (simulates old tokens without sid claim)
+	// must cause SessionIDFromContext to return false after passing through JWTMiddleware.
+	secret := testSecret
+	userID := uuid.New()
+
+	// Generate with uuid.Nil as the session ID to simulate a legacy token.
+	tokenStr, err := GenerateAccessToken(userID, uuid.Nil, secret)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken error: %v", err)
+	}
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(secret)(sentinel)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if !sentinel.called {
+		t.Fatal("next handler was not called for a valid token")
+	}
+
+	_, ok := SessionIDFromContext(sentinel.ctx)
+	if ok {
+		t.Fatal("SessionIDFromContext must return false when token carries uuid.Nil as session ID")
 	}
 }
 

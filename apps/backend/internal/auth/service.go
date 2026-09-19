@@ -186,7 +186,9 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*TokenPa
 		return nil, fmt.Errorf("auth: rotate session: %w", err)
 	}
 
-	accessToken, err := GenerateAccessToken(session.UserID, s.jwtSecret)
+	// The session.ID (UUID v7) is embedded in the access token "sid" claim so that
+	// the rotated session can be targeted for single-session logout.
+	accessToken, err := GenerateAccessToken(session.UserID, session.ID, s.jwtSecret)
 	if err != nil {
 		return nil, fmt.Errorf("auth: generate access token: %w", err)
 	}
@@ -198,9 +200,12 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*TokenPa
 	}, nil
 }
 
-// Logout deletes the session row, immediately invalidating the refresh token.
-func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
-	if err := DeleteSession(ctx, s.pool, sessionID); err != nil {
+// Logout deletes the session row identified by sessionID only when it belongs to
+// userID, immediately invalidating that session's refresh token. Other active
+// sessions for the same user are unaffected.
+// Returns ErrNotFound when the session does not exist or belongs to a different user.
+func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID, userID uuid.UUID) error {
+	if err := DeleteSessionByID(ctx, s.pool, sessionID, userID); err != nil {
 		return fmt.Errorf("auth: logout: %w", err)
 	}
 	return nil
@@ -219,12 +224,9 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID uuid.UUID) error
 
 // issueTokenPair generates an access token and a new refresh token, creates a session
 // row, and returns the pair. ipAddress and userAgent are optional audit fields.
+// The session UUID v7 is embedded in the access token's "sid" claim so that
+// single-session logout can target the exact session row.
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) (*TokenPair, error) {
-	accessToken, err := GenerateAccessToken(userID, s.jwtSecret)
-	if err != nil {
-		return nil, fmt.Errorf("auth: generate access token: %w", err)
-	}
-
 	rawRefresh, hashRefresh, err := GenerateRefreshToken()
 	if err != nil {
 		return nil, fmt.Errorf("auth: generate refresh token: %w", err)
@@ -244,6 +246,13 @@ func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID, ipAddres
 		UserAgent: userAgent,
 	}); err != nil {
 		return nil, fmt.Errorf("auth: create session: %w", err)
+	}
+
+	// Generate access token after the session row exists so that the sid claim
+	// always corresponds to a real sessions row.
+	accessToken, err := GenerateAccessToken(userID, sessionID, s.jwtSecret)
+	if err != nil {
+		return nil, fmt.Errorf("auth: generate access token: %w", err)
 	}
 
 	return &TokenPair{

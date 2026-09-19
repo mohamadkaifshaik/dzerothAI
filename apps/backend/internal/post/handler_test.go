@@ -246,7 +246,7 @@ var testJWTSecret = []byte("handler-test-secret-at-least-32-bytes!")
 // makeAuthedRequest creates an HTTP request with a valid JWT Authorization header.
 func makeAuthedRequest(t *testing.T, method, target string, body []byte, userID uuid.UUID) *http.Request {
 	t.Helper()
-	tokenStr, err := auth.GenerateAccessToken(userID, testJWTSecret)
+	tokenStr, err := auth.GenerateAccessToken(userID, uuid.New(), testJWTSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken: %v", err)
 	}

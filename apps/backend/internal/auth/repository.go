@@ -205,6 +205,23 @@ func DeleteSession(ctx context.Context, pool *pgxpool.Pool, sessionID uuid.UUID)
 	return nil
 }
 
+// DeleteSessionByID removes the session row identified by sessionID only when it
+// belongs to userID. The user_id predicate is the server-side authorization check
+// that prevents a user from revoking another user's session.
+// Returns ErrNotFound when no matching row exists (session already deleted or
+// belongs to a different user).
+func DeleteSessionByID(ctx context.Context, pool *pgxpool.Pool, sessionID uuid.UUID, userID uuid.UUID) error {
+	const q = `DELETE FROM sessions WHERE id = $1 AND user_id = $2`
+	tag, err := pool.Exec(ctx, q, sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("auth: delete session by id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateSessionLastUsed sets last_used_at = now() for the given session.
 func UpdateSessionLastUsed(ctx context.Context, pool *pgxpool.Pool, sessionID uuid.UUID) error {
 	const q = `UPDATE sessions SET last_used_at = now() WHERE id = $1`

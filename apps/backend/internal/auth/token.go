@@ -16,15 +16,25 @@ import (
 // The authenticated user UUID is carried in the standard "sub" claim via
 // RegisteredClaims.Subject. JTI (jti) is a UUID v4 audit identifier; it is
 // not a foreign key to any table. Per ADR 0005 there are no role claims.
+//
+// SessionID ("sid") is the UUID v7 primary key of the sessions row that was
+// created when this token pair was issued. It enables single-session logout:
+// the logout handler deletes only this row rather than all sessions for the user.
+// Tokens issued before this field was introduced will have SessionID == uuid.Nil;
+// the logout handler rejects such tokens with 401 rather than silently revoking
+// all sessions (fail-safe behavior).
 type Claims struct {
 	jwt.RegisteredClaims
+	SessionID uuid.UUID `json:"sid"`
 }
 
 const accessTokenLifetime = 15 * time.Minute
 
 // GenerateAccessToken creates a signed HS256 JWT for the given user.
-// The token expires in 15 minutes and carries a UUID v4 jti for audit purposes.
-func GenerateAccessToken(userID uuid.UUID, secret []byte) (string, error) {
+// The token expires in 15 minutes, carries a UUID v4 jti for audit purposes,
+// and embeds the sessions row UUID (sessionID) in the "sid" claim to enable
+// single-session logout.
+func GenerateAccessToken(userID uuid.UUID, sessionID uuid.UUID, secret []byte) (string, error) {
 	now := time.Now().UTC()
 	jti := uuid.New() // UUID v4 per ADR 0004/0005
 
@@ -35,6 +45,7 @@ func GenerateAccessToken(userID uuid.UUID, secret []byte) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(accessTokenLifetime)),
 			ID:        jti.String(),
 		},
+		SessionID: sessionID,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

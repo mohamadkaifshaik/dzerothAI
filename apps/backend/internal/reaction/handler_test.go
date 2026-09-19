@@ -148,7 +148,7 @@ var reactionTestJWTSecret = []byte("reaction-handler-test-secret-32b!!")
 
 func reactionBearerToken(t *testing.T, userID uuid.UUID) string {
 	t.Helper()
-	tok, err := auth.GenerateAccessToken(userID, reactionTestJWTSecret)
+	tok, err := auth.GenerateAccessToken(userID, uuid.New(), reactionTestJWTSecret)
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}

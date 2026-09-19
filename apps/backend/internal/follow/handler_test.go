@@ -140,7 +140,7 @@ var testFollowJWTSecret = []byte("follow-handler-test-secret-at-least-32!")
 // makeFollowAuthedRequest creates an HTTP request with a valid JWT Authorization header.
 func makeFollowAuthedRequest(t *testing.T, method, target string, userID uuid.UUID) *http.Request {
 	t.Helper()
-	tokenStr, err := auth.GenerateAccessToken(userID, testFollowJWTSecret)
+	tokenStr, err := auth.GenerateAccessToken(userID, uuid.New(), testFollowJWTSecret)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken: %v", err)
 	}
