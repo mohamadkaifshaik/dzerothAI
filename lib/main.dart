@@ -17,6 +17,8 @@ import 'features/notification/data/repositories/notification_repository_impl.dar
 import 'features/notification/domain/repositories/notification_repository.dart';
 import 'features/reaction/data/repositories/reaction_repository_impl.dart';
 import 'features/reaction/domain/repositories/reaction_repository.dart';
+import 'features/hashtag/data/repositories/hashtag_repository_impl.dart';
+import 'features/hashtag/domain/repositories/hashtag_repository.dart';
 import 'features/report/data/repositories/report_repository_impl.dart';
 import 'features/report/domain/repositories/report_repository.dart';
 import 'features/search/data/repositories/search_repository_impl.dart';
@@ -141,6 +143,12 @@ void main() async {
   // Auth is required — the shared authenticated Dio instance is used.
   ReportRepository reportRepositoryFactory() => ReportRepositoryImpl(dio: dio);
 
+  // --- Hashtag repository factory ---
+  // Auth is optional — the shared Dio instance attaches a token when available
+  // but hashtag feed endpoints also work unauthenticated.
+  HashtagRepository hashtagRepositoryFactory(String tag) =>
+      HashtagRepositoryImpl(dio: dio);
+
   // --- Router ---
   final router = createAppRouter(
     authBloc: authBloc,
@@ -156,6 +164,7 @@ void main() async {
     settingsRepositoryFactory: settingsRepositoryFactory,
     studioRepositoryFactory: studioRepositoryFactory,
     reportRepositoryFactory: reportRepositoryFactory,
+    hashtagRepositoryFactory: hashtagRepositoryFactory,
   );
 
   runApp(DzerothApp(authBloc: authBloc, router: router));

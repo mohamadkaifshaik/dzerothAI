@@ -40,7 +40,8 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-021 | Safety | Reporting | IMPLEMENTED | Phase 5 — `internal/report/`, migration 0013, Flutter `features/report/`; `POST /api/v1/posts/{postId}/report` + `POST /api/v1/users/{userId}/report`; moderator queue deferred to Phase 7 |
 | F-022 | Safety | Block/mute | IMPLEMENTED | Phase 1 (schema: blocks/mutes tables, migration 0003) + Phase 3 (full enforcement: `internal/block/`, atomic block+unfollow transaction, feed/profile filtering, Flutter `features/block/`) |
 | F-023 | Creator | Private Creator Studio | IMPLEMENTED | Phase 5 — `internal/studio/`, Flutter `features/studio/`; `GET /api/v1/me/studio/analytics`; current-state aggregates only; owner-scoped; terminated at 50 items |
-| F-024 | Ranking | Localized weekly titles | PLANNED | Phase 6 |
+| F-024 | Ranking | Localized weekly titles | DEFERRED | Phase 6 — ranking deferred to dedicated future feature |
+| F-033 | Discovery | Topics/Trends (hashtag feed) | IMPLEMENTED | Phase 6 — `GET /api/v1/hashtags/{tag}/posts` (`internal/post/` extension); Flutter `features/hashtag/`; tappable `#hashtag` tokens in PostCard; terminated at 200 items; block-filtered for authenticated callers |
 | F-025 | Operations | Observability | PLANNED | Phase 7 |
 | F-026 | Operations | CI/CD and deployment | PLANNED | Phase 8 |
 | F-027 | Social | Follow/follower system | IMPLEMENTED | Phase 3 — `internal/follow/`, migration 0007, instant follow, `IsBlockedBy` check, private-account enforcement, Flutter `features/follow/` |

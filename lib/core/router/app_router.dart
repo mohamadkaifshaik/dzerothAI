@@ -41,6 +41,9 @@ import '../../features/settings/domain/repositories/settings_repository.dart';
 import '../../features/settings/presentation/bloc/settings_bloc.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
 import '../../features/shell/presentation/screens/app_shell.dart';
+import '../../features/hashtag/domain/repositories/hashtag_repository.dart';
+import '../../features/hashtag/presentation/bloc/hashtag_feed_bloc.dart';
+import '../../features/hashtag/presentation/screens/hashtag_feed_screen.dart';
 import '../../features/studio/domain/repositories/studio_repository.dart';
 import '../../features/studio/presentation/bloc/studio_bloc.dart';
 import '../../features/studio/presentation/screens/studio_screen.dart';
@@ -80,6 +83,7 @@ GoRouter createAppRouter({
   required StudioRepository Function() studioRepositoryFactory,
   required SettingsRepository Function() settingsRepositoryFactory,
   required ReportRepository Function() reportRepositoryFactory,
+  required HashtagRepository Function(String tag) hashtagRepositoryFactory,
 }) {
   final refreshStream = GoRouterRefreshStream(authBloc.stream);
 
@@ -362,6 +366,22 @@ GoRouter createAppRouter({
               StudioBloc(studioRepository: studioRepositoryFactory()),
           child: const StudioScreen(),
         ),
+      ),
+
+      // Hashtag feed — public; auth optional; outside shell (full-page).
+      // Navigated to by tapping a #hashtag token in any PostCard.
+      GoRoute(
+        path: '/hashtags/:tag',
+        builder: (context, state) {
+          final tag = state.pathParameters['tag']!;
+          return BlocProvider(
+            create: (_) => HashtagFeedBloc(
+              hashtagRepository: hashtagRepositoryFactory(tag),
+              tag: tag,
+            )..add(const HashtagFeedLoadRequested()),
+            child: HashtagFeedScreen(tag: tag),
+          );
+        },
       ),
     ],
   );

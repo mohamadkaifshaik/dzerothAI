@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -47,10 +48,7 @@ class PostCard extends StatelessWidget {
                   _AuthorRow(author: post.author, createdAt: post.createdAt),
                   if (post.content != null && post.content!.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      post.content!,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
+                    _RichPostContent(content: post.content!),
                   ],
                   const SizedBox(height: 8),
                   _PostActions(post: post),
@@ -317,6 +315,75 @@ class _ReportMenuButton extends StatelessWidget {
 }
 
 enum _PostMenuAction { report }
+
+// ---------------------------------------------------------------------------
+// Rich post content with tappable #hashtag spans
+// ---------------------------------------------------------------------------
+
+/// Renders post content with tappable [#hashtag] tokens.
+///
+/// Tapping a hashtag navigates to `/hashtags/<tag>` so the user can browse
+/// all posts with that tag.  Non-hashtag text is rendered with the standard
+/// [bodyMedium] style.
+///
+/// Recognizes tokens matching `#[a-zA-Z][a-zA-Z0-9_]*`.  Only the tag word
+/// is navigated (the '#' is included as part of the visual label).
+class _RichPostContent extends StatelessWidget {
+  const _RichPostContent({required this.content});
+
+  final String content;
+
+  static final _hashtagPattern = RegExp(r'#([a-zA-Z][a-zA-Z0-9_]*)');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseStyle = theme.textTheme.bodyMedium;
+    final tagStyle = baseStyle?.copyWith(
+      color: theme.colorScheme.primary,
+      fontWeight: FontWeight.w500,
+    );
+
+    final spans = <InlineSpan>[];
+    int cursor = 0;
+
+    for (final match in _hashtagPattern.allMatches(content)) {
+      // Add plain text before this match.
+      if (match.start > cursor) {
+        spans.add(
+          TextSpan(
+            text: content.substring(cursor, match.start),
+            style: baseStyle,
+          ),
+        );
+      }
+
+      final tag = match.group(1)!; // tag without '#'
+      spans.add(
+        TextSpan(
+          text: match.group(0), // '#tag'
+          style: tagStyle,
+          recognizer: TapGestureRecognizer()
+            ..onTap = () => context.push('/hashtags/$tag'),
+        ),
+      );
+
+      cursor = match.end;
+    }
+
+    // Add any remaining plain text after the last match.
+    if (cursor < content.length) {
+      spans.add(TextSpan(text: content.substring(cursor), style: baseStyle));
+    }
+
+    // Fall back to plain Text when no hashtags are present.
+    if (spans.isEmpty || spans.every((s) => s is! TextSpan)) {
+      return Text(content, style: baseStyle);
+    }
+
+    return RichText(text: TextSpan(children: spans));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Deleted post card

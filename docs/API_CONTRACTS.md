@@ -388,12 +388,40 @@ Authorization: Bearer <jwt_access_token>
 - All count fields are private analytics. They must never appear in any public DTO.
 - Soft-deleted posts excluded.
 
-### Phase 5+ (not yet designed — do not implement)
+### Phase 6 — Topics/Trends (hashtag browsing)
+
+| Area | Method | Path | Status | Notes |
+|---|---|---|---|---|
+| Topics | `GET` | `/api/v1/hashtags/{tag}/posts` | IMPLEMENTED | Auth optional. Cursor-paginated. `terminated: true` at 200 posts. Block filtering applied for authenticated callers. Tag normalized server-side (lowercase, `#` stripped). |
+
+#### `GET /api/v1/hashtags/{tag}/posts` — Hashtag feed
+
+**Auth:** optional (Bearer token). When authenticated, posts by blocked users are excluded.
+
+**Path param:** `tag` — hashtag without `#` (e.g. `golang`, not `#golang`).
+
+**Query params:** `cursor` (opaque base64url cursor from previous response).
+
+**Response:**
+```json
+{
+  "items": [ /* PostDTO array — zero public metrics */ ],
+  "next_cursor": "<opaque>",
+  "terminated": true
+}
+```
+
+- `terminated: true` at server-enforced max of 200 posts. Flutter renders `GoTouchGrassWidget`.
+- Returns `400 VALIDATION_ERROR` for malformed tag format.
+- Soft-deleted posts excluded.
+
+### Phase 5+ / deferred (not yet designed — do not implement)
 
 | Area | Endpoint | Status | Notes |
 |---|---|---|---|
 | Feed | `/api/v1/feeds/inner-circle` | DEFERRED | Requires separate architecture design. |
 | Feed | `/api/v1/feeds/discovery` | DEFERRED | Requires content ranking logic. |
+| Ranking | Redis ZSET + weekly_titles | DEFERRED | Phase 6 ranking deferred to dedicated future feature. |
 
 ---
 

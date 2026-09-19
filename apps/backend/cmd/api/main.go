@@ -113,9 +113,10 @@ func run() error {
 	blockSvc := block.NewService(blockRepo, log)
 
 	// Phase-3 dependency injection: wire cross-package interfaces to avoid
-	// circular imports. Both setters are called in the startup phase before
+	// circular imports. Setters are called in the startup phase before
 	// the HTTP server starts listening.
 	postSvc.SetFollowChecker(followSvc)
+	postSvc.SetBlockProvider(blockSvc)
 
 	// Phase-4: feed package. followRepo satisfies feed.FollowProvider directly
 	// because GetFollowedIDs lives on follow.Repository, not follow.Service.

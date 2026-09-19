@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -39,11 +40,12 @@ func (h *Handler) SetReactionChecker(rc ReactionChecker) {
 //
 // Routes:
 //
-//	POST   /posts                   — authenticated, rate-limited (30/15min per user)
-//	GET    /posts/{postID}          — public
-//	DELETE /posts/{postID}          — authenticated, owner only
-//	GET    /posts/{postID}/thread   — public, paginated
-//	GET    /users/{userID}/posts    — public, paginated
+//	POST   /posts                      — authenticated, rate-limited (30/15min per user)
+//	GET    /posts/{postID}             — public
+//	DELETE /posts/{postID}             — authenticated, owner only
+//	GET    /posts/{postID}/thread      — public, paginated
+//	GET    /users/{userID}/posts       — public, paginated
+//	GET    /hashtags/{tag}/posts       — public, auth optional, paginated
 //
 // The write rate limit uses key rl:post:create:{user_id} and fails closed
 // (HTTP 503) when Redis is unavailable — this is an abuse-sensitive operation.
@@ -64,6 +66,10 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 
 	// GET /users/{userID}/posts — public, paginated.
 	r.Get("/users/{userID}/posts", h.listUserPosts)
+
+	// GET /hashtags/{tag}/posts — public, auth optional, cursor-paginated.
+	// Authenticated callers have block-filtered results.
+	r.Get("/hashtags/{tag}/posts", h.listHashtagPosts(jwtSecret))
 }
 
 // createPost handles POST /api/v1/posts.
@@ -205,6 +211,52 @@ func (h *Handler) listUserPosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, page)
+}
+
+// listHashtagPosts handles GET /api/v1/hashtags/{tag}/posts.
+// Auth optional. Authenticated callers have block-filtered results.
+// Terminated at 200 items (CLAUDE.md §2.1, no infinite scrolling).
+func (h *Handler) listHashtagPosts(jwtSecret []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tag := chi.URLParam(r, "tag")
+		cursor := r.URL.Query().Get("cursor")
+		callerID := extractOptionalCallerID(r, jwtSecret)
+
+		page, err := h.svc.PostsByHashtag(r.Context(), callerID, tag, cursor)
+		if err != nil {
+			h.handleServiceError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, page)
+	}
+}
+
+// extractOptionalCallerID attempts to parse a Bearer JWT from the Authorization
+// header without blocking the request if authentication is absent or invalid.
+// Returns nil when no valid JWT is present.
+//
+// NOTE: This function is intentionally local to each package that needs optional-auth
+// (post, search). Factor into a shared helper in Phase 7 tech-debt cleanup.
+func extractOptionalCallerID(r *http.Request, jwtSecret []byte) *uuid.UUID {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return nil
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return nil
+	}
+	tokenStr := strings.TrimPrefix(authHeader, prefix)
+	claims, err := auth.ValidateAccessToken(tokenStr, jwtSecret)
+	if err != nil {
+		return nil
+	}
+	id, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return nil
+	}
+	return &id
 }
 
 // handleServiceError maps *apierror.APIError and other service errors to HTTP responses.

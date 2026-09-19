@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 next`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 complete (ranking deferred) — Phase 7 next`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
@@ -69,7 +69,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [x] Quote posts (implemented in Phase 2/3)
 - [x] Bookmarks (core in Phase 3; PostDetailScreen wiring fixed in Phase 4 Wave 0)
 - [x] Search (posts and users)
-- [ ] Topics/trends (Phase 6)
+- [x] Topics/trends (hashtag feed — Phase 6)
 - [x] Notifications (follow, mention, reply, reaction events)
 - [ ] Inner Circle (deferred)
 - [ ] Discovery/algorithmic feed (deferred)
@@ -91,14 +91,15 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 ## Phase 6 — Localized rankings and weekly titles
 
-- [ ] Redis ZSET ranking pipelines
-- [ ] Zone/type/week key convention
-- [ ] Weekly snapshot
-- [ ] PostgreSQL `weekly_titles` persistence
-- [ ] Sunday-night rotation behavior
-- [ ] Failure recovery and idempotency
+- [x] Topics/trends — hashtag browsing (`GET /api/v1/hashtags/{tag}/posts`, Flutter `features/hashtag/`, tappable PostCard hashtags)
+- [ ] Redis ZSET ranking pipelines — DEFERRED to dedicated future feature
+- [ ] Zone/type/week key convention — DEFERRED
+- [ ] Weekly snapshot — DEFERRED
+- [ ] PostgreSQL `weekly_titles` persistence — DEFERRED
+- [ ] Sunday-night rotation behavior — DEFERRED
+- [ ] Failure recovery and idempotency — DEFERRED
 
-**Exit gate:** rankings are deterministic, recoverable, and operationally observable.
+**Exit gate:** rankings are deterministic, recoverable, and operationally observable. ✓ (partial — topics/trends complete; ranking permanently deferred to dedicated feature)
 
 ## Phase 7 — Hardening
 

@@ -259,6 +259,81 @@ func (r *Repository) GetAuthorIsPrivate(ctx context.Context, authorID uuid.UUID)
 	return isPrivate, nil
 }
 
+// ListByHashtag returns a cursor-paginated list of non-deleted posts tagged
+// with the given normalized tag (lowercase, without '#').
+// Posts authored by users in blockedIDs are excluded when the slice is non-empty.
+// Results are ordered by created_at DESC, id DESC (most recent first, deterministic).
+// Returns (posts, nextCursor, terminated, error).
+func (r *Repository) ListByHashtag(ctx context.Context, tag string, cursor *FeedCursor, limit int, blockedIDs []uuid.UUID) ([]Post, string, bool, error) {
+	fetchLimit := limit + 1
+	blockedArr := uuidSliceToStringSlice(blockedIDs)
+
+	var (
+		rows pgx.Rows
+		err  error
+	)
+
+	if cursor == nil {
+		const q = `
+			SELECT
+				p.id, p.author_id, p.post_type, p.content,
+				p.parent_id, p.thread_root_id, p.quoted_post_id,
+				p.is_deleted, p.created_at, p.updated_at,
+				u.id, u.handle, u.display_name, u.avatar_url
+			FROM posts p
+			JOIN users u ON u.id = p.author_id
+			JOIN post_hashtags ph ON ph.post_id = p.id
+			WHERE ph.tag = $1
+			  AND p.is_deleted = FALSE
+			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
+			ORDER BY p.created_at DESC, p.id DESC
+			LIMIT $3`
+		rows, err = r.pool.Query(ctx, q, tag, blockedArr, fetchLimit)
+	} else {
+		const q = `
+			SELECT
+				p.id, p.author_id, p.post_type, p.content,
+				p.parent_id, p.thread_root_id, p.quoted_post_id,
+				p.is_deleted, p.created_at, p.updated_at,
+				u.id, u.handle, u.display_name, u.avatar_url
+			FROM posts p
+			JOIN users u ON u.id = p.author_id
+			JOIN post_hashtags ph ON ph.post_id = p.id
+			WHERE ph.tag = $1
+			  AND p.is_deleted = FALSE
+			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
+			  AND (p.created_at, p.id) < ($3, $4)
+			ORDER BY p.created_at DESC, p.id DESC
+			LIMIT $5`
+		rows, err = r.pool.Query(ctx, q, tag, blockedArr, cursor.Timestamp, cursor.AfterID, fetchLimit)
+	}
+	if err != nil {
+		return nil, "", false, fmt.Errorf("post: list by hashtag query: %w", err)
+	}
+	defer rows.Close()
+
+	posts, err := collectRows(rows)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("post: list by hashtag scan: %w", err)
+	}
+
+	return buildPage(posts, limit)
+}
+
+// uuidSliceToStringSlice converts []uuid.UUID to []string for use in pgx array
+// parameters. Returns nil when the input is empty (preserving the "no filter"
+// SQL behavior).
+func uuidSliceToStringSlice(ids []uuid.UUID) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	s := make([]string, len(ids))
+	for i, id := range ids {
+		s[i] = id.String()
+	}
+	return s
+}
+
 // ScanPostRow scans a single row from a posts JOIN users query.
 // Exported so that other packages (e.g. internal/feed) can reuse the scan
 // logic without duplicating it (OPEN-5).

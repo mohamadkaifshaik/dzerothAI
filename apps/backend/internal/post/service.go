@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	maxPostRunes   = 500
-	maxHashtags    = 10
-	maxDepthAuthor = 200
-	maxDepthThread = 100
+	maxPostRunes    = 500
+	maxHashtags     = 10
+	maxDepthAuthor  = 200
+	maxDepthThread  = 100
+	maxDepthHashtag = 200
 
 	// minQuoteWords is the minimum number of distinct words required in quote
 	// post content. This is a Dzeroth product invariant (CLAUDE.md §2.2).
@@ -32,6 +33,9 @@ const (
 // contains only alphanumeric characters and underscores.
 var hashtagPattern = regexp.MustCompile(`#([a-zA-Z][a-zA-Z0-9_]*)`)
 
+// validTagPattern validates a normalized (lowercase, '#'-stripped) hashtag.
+var validTagPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
 // mentionPattern matches @handle tokens.
 // Handle characters: letters, digits, underscores, hyphens.
 var mentionPattern = regexp.MustCompile(`@([a-zA-Z0-9][a-zA-Z0-9_-]{1,49})`)
@@ -41,6 +45,13 @@ var mentionPattern = regexp.MustCompile(`@([a-zA-Z0-9][a-zA-Z0-9_-]{1,49})`)
 // follow.Service satisfies this interface via its IsFollowing method.
 type FollowChecker interface {
 	IsFollowing(ctx context.Context, followerID, followedID uuid.UUID) (bool, error)
+}
+
+// BlockProvider abstracts the block.Service methods required by post.Service for
+// hashtag feed block filtering. Using an interface prevents a circular import.
+// block.Service satisfies this interface via its GetBlockedIDs method.
+type BlockProvider interface {
+	GetBlockedIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
 // PostNotificationEvent carries the fields needed to publish a single
@@ -67,6 +78,7 @@ type Service struct {
 	repo          *Repository
 	log           *zap.Logger
 	followChecker FollowChecker
+	blockProvider BlockProvider
 	notifier      PostNotificationPublisher
 }
 
@@ -80,6 +92,13 @@ func NewService(repo *Repository, log *zap.Logger) *Service {
 // called during the single-threaded startup phase before the HTTP server starts.
 func (s *Service) SetFollowChecker(fc FollowChecker) {
 	s.followChecker = fc
+}
+
+// SetBlockProvider injects a BlockProvider dependency for hashtag feed block
+// filtering. Must be called after NewService and before the first request is
+// served. Concurrency-safe if called during the single-threaded startup phase.
+func (s *Service) SetBlockProvider(bp BlockProvider) {
+	s.blockProvider = bp
 }
 
 // SetNotificationPublisher injects a PostNotificationPublisher dependency. Must be
@@ -402,6 +421,51 @@ func (s *Service) ListThreadReplies(ctx context.Context, threadRootID uuid.UUID,
 	posts, nextCursor, terminated, err := s.repo.ListThreadReplies(ctx, threadRootID, cursor, maxDepthThread)
 	if err != nil {
 		s.log.Error("post: list thread replies", zap.Error(err))
+		return PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
+	}
+
+	dtos := make([]PostDTO, len(posts))
+	for i, p := range posts {
+		dtos[i] = ToDTO(p)
+	}
+
+	return PostPage{Items: dtos, NextCursor: nextCursor, Terminated: terminated}, nil
+}
+
+// PostsByHashtag returns a cursor-paginated PostPage of posts tagged with the
+// given tag. The tag is normalized (leading '#' stripped, lowercased) before
+// the database query. The server-enforced maximum depth is 200 posts per
+// CLAUDE.md §2.1 (no infinite scrolling). Authenticated callers have posts
+// by blocked users excluded from the result.
+func (s *Service) PostsByHashtag(ctx context.Context, callerID *uuid.UUID, rawTag string, cursorStr string) (PostPage, error) {
+	tag := strings.ToLower(strings.TrimPrefix(rawTag, "#"))
+	if tag == "" || !validTagPattern.MatchString(tag) {
+		return PostPage{}, apierror.NewAPIError(apierror.CodeValidation, "invalid tag format")
+	}
+
+	var cursor *FeedCursor
+	if cursorStr != "" {
+		c, err := DecodeCursor(cursorStr)
+		if err != nil {
+			return PostPage{}, apierror.NewAPIError(apierror.CodeValidation, "invalid cursor")
+		}
+		cursor = c
+	}
+
+	var blockedIDs []uuid.UUID
+	if callerID != nil && s.blockProvider != nil {
+		ids, err := s.blockProvider.GetBlockedIDs(ctx, *callerID)
+		if err != nil {
+			s.log.Error("post: hashtag feed block check", zap.Error(err))
+			// Non-fatal: proceed without block filtering rather than failing the request.
+		} else {
+			blockedIDs = ids
+		}
+	}
+
+	posts, nextCursor, terminated, err := s.repo.ListByHashtag(ctx, tag, cursor, maxDepthHashtag, blockedIDs)
+	if err != nil {
+		s.log.Error("post: posts by hashtag", zap.Error(err))
 		return PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
 	}
 
