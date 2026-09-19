@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 next`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 next`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
@@ -64,15 +64,17 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 ## Phase 4 — Interactions and discovery
 
-- [ ] Reactions where product design permits
-- [ ] Repost/retweet-style sharing
-- [ ] Quote posts
-- [ ] Bookmarks
-- [ ] Search
-- [ ] Topics/trends where approved
-- [ ] Notifications
+- [x] Reactions (private toggle, no public count)
+- [x] Repost/retweet-style sharing (implemented in Phase 2/3)
+- [x] Quote posts (implemented in Phase 2/3)
+- [x] Bookmarks (core in Phase 3; PostDetailScreen wiring fixed in Phase 4 Wave 0)
+- [x] Search (posts and users)
+- [ ] Topics/trends (Phase 6)
+- [x] Notifications (follow, mention, reply, reaction events)
+- [ ] Inner Circle (deferred)
+- [ ] Discovery/algorithmic feed (deferred)
 
-**Exit gate:** interaction state is consistent, idempotent, authorized, and covered by tests.
+**Exit gate:** interaction state is consistent, idempotent, authorized, and covered by tests. ✓ (Topics/trends, Inner Circle, and Discovery deferred)
 
 ## Phase 5 — Safety and creator functionality
 

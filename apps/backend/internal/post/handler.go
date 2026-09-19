@@ -18,13 +18,21 @@ import (
 
 // Handler exposes the post HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc             *Service
+	log             *zap.Logger
+	reactionChecker ReactionChecker
 }
 
 // NewHandler constructs a post Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetReactionChecker injects a ReactionChecker dependency. Must be called after
+// NewHandler and before the first request is served. Concurrency-safe if called
+// during the single-threaded startup phase before the HTTP server starts.
+func (h *Handler) SetReactionChecker(rc ReactionChecker) {
+	h.reactionChecker = rc
 }
 
 // RegisterRoutes mounts all post routes on the provided chi.Router.
@@ -95,6 +103,9 @@ func (h *Handler) createPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // getPost handles GET /api/v1/posts/{postID}.
+// The route is public. When the caller is authenticated, viewer_has_reacted
+// is included in the response. Unauthenticated callers receive a response with
+// the viewer_has_reacted field fully absent (not false, not null) per CLAUDE.md §2.3.
 func (h *Handler) getPost(w http.ResponseWriter, r *http.Request) {
 	postID, ok := parseUUIDParam(w, r, "postID")
 	if !ok {
@@ -107,7 +118,25 @@ func (h *Handler) getPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"post": dto})
+	resp := PostDetailResponse{PostDTO: dto}
+
+	// Enrich with viewer_has_reacted only for authenticated callers.
+	// The route does not require auth, so we check context without mandating it.
+	if callerID, authed := auth.UserIDFromContext(r.Context()); authed && h.reactionChecker != nil {
+		reacted, reactionErr := h.reactionChecker.HasReacted(r.Context(), callerID, postID)
+		if reactionErr != nil {
+			// Non-fatal: log and omit the field rather than failing the request.
+			h.log.Warn("post: get post reaction check failed",
+				zap.String("post_id", postID.String()),
+				zap.String("caller_id", callerID.String()),
+				zap.Error(reactionErr),
+			)
+		} else {
+			resp.ViewerHasReacted = &reacted
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"post": resp})
 }
 
 // deletePost handles DELETE /api/v1/posts/{postID}.

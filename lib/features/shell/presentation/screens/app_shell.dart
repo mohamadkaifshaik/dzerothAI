@@ -90,47 +90,8 @@ class _TabItem {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder screens for Phase 1 (Feed, Search, Notifications, Settings)
+// Placeholder screens
 // ---------------------------------------------------------------------------
-
-class FeedPlaceholderScreen extends StatelessWidget {
-  const FeedPlaceholderScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PlaceholderScreen(
-      icon: Icons.home_outlined,
-      title: 'Feed',
-      message: 'Your feed will appear here in Phase 2.',
-    );
-  }
-}
-
-class SearchPlaceholderScreen extends StatelessWidget {
-  const SearchPlaceholderScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PlaceholderScreen(
-      icon: Icons.search,
-      title: 'Search',
-      message: 'Search and discovery coming in Phase 4.',
-    );
-  }
-}
-
-class NotificationsPlaceholderScreen extends StatelessWidget {
-  const NotificationsPlaceholderScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PlaceholderScreen(
-      icon: Icons.notifications_none,
-      title: 'Notifications',
-      message: 'Notifications coming in Phase 4.',
-    );
-  }
-}
 
 class SettingsPlaceholderScreen extends StatelessWidget {
   const SettingsPlaceholderScreen({super.key});

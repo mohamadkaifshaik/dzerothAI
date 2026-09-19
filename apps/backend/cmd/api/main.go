@@ -32,9 +32,12 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/config"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/feed"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/follow"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"
 	platformDB "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/db"
 	platformRedis "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/redis"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/reaction"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/search"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/user"
 )
 
@@ -122,10 +125,32 @@ func run() error {
 	bookmarkSvc := bookmark.NewService(bookmarkRepo, log)
 	bookmarkHandler := bookmark.NewHandler(bookmarkSvc, log)
 
+	// Phase-4 Wave 2c: notification, reaction, search packages.
+	notifRepo := notification.NewRepository(pool)
+	notifSvc := notification.NewService(notifRepo, log)
+	notifHandler := notification.NewHandler(notifSvc, log)
+
+	reactionRepo := reaction.NewRepository(pool)
+	reactionSvc := reaction.NewService(reactionRepo, notifSvc, redisClient, log)
+	reactionHandler := reaction.NewHandler(reactionSvc, postSvc, log)
+
+	searchRepo := search.NewRepository(pool)
+	searchSvc := search.NewService(searchRepo, blockSvc, log)
+	searchHandler := search.NewHandler(searchSvc, log)
+
+	// Wire notification publisher into existing services so that follow, reply,
+	// and mention events trigger best-effort notifications. Setters are called
+	// in the startup phase before the HTTP server starts listening.
+	followSvc.SetNotificationPublisher(notifSvc)
+	// postSvc requires an adapter because internal/notification imports internal/post
+	// (for FeedCursor), so internal/post cannot directly import internal/notification.
+	postSvc.SetNotificationPublisher(&postNotificationAdapter{svc: notifSvc})
+
 	authHandler := auth.NewHandler(authSvc, log)
 	userHandler := user.NewHandler(userSvc, log)
 	userHandler.SetBlockChecker(blockSvc)
 	postHandler := post.NewHandler(postSvc, log)
+	postHandler.SetReactionChecker(reactionSvc)
 	followHandler := follow.NewHandler(followSvc, log)
 	blockHandler := block.NewHandler(blockSvc, log)
 
@@ -155,6 +180,9 @@ func run() error {
 		blockHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 		feedHandler.RegisterRoutes(r, cfg.JWTSecret)
 		bookmarkHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
+		notifHandler.RegisterRoutes(r, cfg.JWTSecret)
+		reactionHandler.RegisterRoutes(r, cfg.JWTSecret)
+		searchHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 	})
 
 	// ── 9. Start HTTP server ──────────────────────────────────────────────────
@@ -194,6 +222,24 @@ func run() error {
 
 	log.Info("server stopped cleanly")
 	return nil
+}
+
+// postNotificationAdapter adapts notification.Service to the post.PostNotificationPublisher
+// interface. This adapter is required because internal/notification imports internal/post
+// (for FeedCursor), preventing internal/post from directly importing internal/notification.
+// The adapter lives in cmd/api/main.go — the only layer that may depend on both packages.
+type postNotificationAdapter struct {
+	svc *notification.Service
+}
+
+func (a *postNotificationAdapter) PublishPostEvent(ctx context.Context, event post.PostNotificationEvent) error {
+	postIDCopy := event.PostID
+	return a.svc.Publish(ctx, notification.PublishEvent{
+		RecipientID: event.RecipientID,
+		ActorID:     event.ActorID,
+		Event:       notification.NotificationEvent(event.Event),
+		PostID:      postIDCopy,
+	})
 }
 
 // buildLogger creates a zap logger tuned to the configured environment and level.

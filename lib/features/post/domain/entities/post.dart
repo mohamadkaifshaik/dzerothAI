@@ -27,6 +27,10 @@ class PostAuthor extends Equatable {
 /// counts, share counts, follower counts, or any equivalent popularity metric)
 /// per CLAUDE.md §2.3.  These values must never be added here or rendered in
 /// any public feed or post-detail UI layer.
+///
+/// [viewerHasReacted] is a private viewer-state field, NOT a social-validation
+/// metric. It is only populated on single-post fetches with authentication and
+/// must never be displayed as a count or public signal.
 class Post extends Equatable {
   const Post({
     required this.id,
@@ -39,6 +43,7 @@ class Post extends Equatable {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.viewerHasReacted,
   });
 
   final String id;
@@ -57,6 +62,13 @@ class Post extends Equatable {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// Whether the authenticated viewer has reacted to this post.
+  ///
+  /// Only populated on single-post detail fetches with authentication.
+  /// Null in feed, thread, search, and all unauthenticated contexts.
+  /// Must never be displayed as a count or public social-validation signal.
+  final bool? viewerHasReacted;
+
   @override
   List<Object?> get props => [
     id,
@@ -69,6 +81,7 @@ class Post extends Equatable {
     isDeleted,
     createdAt,
     updatedAt,
+    viewerHasReacted,
   ];
 }
 

@@ -12,6 +12,12 @@ import 'features/block/data/repositories/block_repository_impl.dart';
 import 'features/block/domain/repositories/block_repository.dart';
 import 'features/bookmark/data/repositories/bookmark_repository_impl.dart';
 import 'features/bookmark/domain/repositories/bookmark_repository.dart';
+import 'features/notification/data/datasources/notification_remote_data_source.dart';
+import 'features/notification/data/repositories/notification_repository_impl.dart';
+import 'features/notification/domain/repositories/notification_repository.dart';
+import 'features/reaction/data/repositories/reaction_repository_impl.dart';
+import 'features/reaction/domain/repositories/reaction_repository.dart';
+import 'features/search/data/repositories/search_repository_impl.dart';
 import 'features/feed/data/repositories/feed_repository_impl.dart';
 import 'features/follow/data/repositories/follow_repository_impl.dart';
 import 'features/follow/domain/repositories/follow_repository.dart';
@@ -101,6 +107,22 @@ void main() async {
   BookmarkRepository bookmarkRepositoryFactory() =>
       BookmarkRepositoryImpl(dio: dio);
 
+  // --- Reaction repository factory ---
+  ReactionRepository reactionRepositoryFactory() =>
+      ReactionRepositoryImpl(dio: dio);
+
+  // --- Notification repository factory ---
+  NotificationRepository notificationRepositoryFactory() =>
+      NotificationRepositoryImpl(
+        dataSource: NotificationRemoteDataSource(dio: dio),
+      );
+
+  // --- Search repository factory ---
+  // Auth is optional for search — the shared Dio instance attaches a token
+  // when available but search endpoints also work unauthenticated.
+  SearchRepositoryImpl searchRepositoryFactory() =>
+      SearchRepositoryImpl(dio: dio);
+
   // --- Router ---
   final router = createAppRouter(
     authBloc: authBloc,
@@ -110,6 +132,9 @@ void main() async {
     followRepositoryFactory: followRepositoryFactory,
     blockRepositoryFactory: blockRepositoryFactory,
     bookmarkRepositoryFactory: bookmarkRepositoryFactory,
+    reactionRepositoryFactory: reactionRepositoryFactory,
+    notificationRepositoryFactory: notificationRepositoryFactory,
+    searchRepositoryFactory: searchRepositoryFactory,
   );
 
   runApp(DzerothApp(authBloc: authBloc, router: router));

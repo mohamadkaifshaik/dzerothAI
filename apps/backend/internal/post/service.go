@@ -43,11 +43,31 @@ type FollowChecker interface {
 	IsFollowing(ctx context.Context, followerID, followedID uuid.UUID) (bool, error)
 }
 
+// PostNotificationEvent carries the fields needed to publish a single
+// notification from post.Service. It is defined here to avoid a circular
+// import between internal/post and internal/notification.
+// The Event string values must match those in internal/notification/model.go.
+type PostNotificationEvent struct {
+	RecipientID uuid.UUID
+	ActorID     uuid.UUID
+	Event       string
+	PostID      *uuid.UUID
+}
+
+// PostNotificationPublisher is the interface used by post.Service to emit
+// notification events without importing internal/notification directly
+// (which would create an import cycle since notification imports post.FeedCursor).
+// An adapter in cmd/api/main.go bridges this interface to notification.Service.
+type PostNotificationPublisher interface {
+	PublishPostEvent(ctx context.Context, event PostNotificationEvent) error
+}
+
 // Service implements post business logic.
 type Service struct {
 	repo          *Repository
 	log           *zap.Logger
 	followChecker FollowChecker
+	notifier      PostNotificationPublisher
 }
 
 // NewService constructs a post Service.
@@ -60,6 +80,31 @@ func NewService(repo *Repository, log *zap.Logger) *Service {
 // called during the single-threaded startup phase before the HTTP server starts.
 func (s *Service) SetFollowChecker(fc FollowChecker) {
 	s.followChecker = fc
+}
+
+// SetNotificationPublisher injects a PostNotificationPublisher dependency. Must be
+// called after NewService and before the first request is served. Concurrency-safe
+// if called during the single-threaded startup phase before the HTTP server starts.
+func (s *Service) SetNotificationPublisher(np PostNotificationPublisher) {
+	s.notifier = np
+}
+
+// GetPostAuthorID returns the AuthorID of the post identified by postID.
+// Returns a CodeNotFound error if the post does not exist or has been soft-deleted.
+// This method satisfies the reaction.PostAuthorLookup interface.
+func (s *Service) GetPostAuthorID(ctx context.Context, postID uuid.UUID) (uuid.UUID, error) {
+	p, err := s.repo.GetByID(ctx, postID)
+	if err != nil {
+		if err == ErrNotFound {
+			return uuid.UUID{}, apierror.NewAPIError(apierror.CodeNotFound, "post not found")
+		}
+		s.log.Error("post: get post author id", zap.Error(err))
+		return uuid.UUID{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
+	}
+	if p.IsDeleted {
+		return uuid.UUID{}, apierror.NewAPIError(apierror.CodeNotFound, "post not found")
+	}
+	return p.AuthorID, nil
 }
 
 // CreatePost validates the request, extracts mentions and hashtags, generates a
@@ -205,6 +250,50 @@ func (s *Service) CreatePost(ctx context.Context, authorID uuid.UUID, req Create
 	if err != nil {
 		s.log.Error("post: fetch after create", zap.Error(err))
 		return PostDTO{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
+	}
+
+	// Publish best-effort notifications. Notification failures must not fail
+	// the primary create operation (CLAUDE.md §2, §12 — reliability).
+	if s.notifier != nil {
+		// Reply notification: notify the parent post's author.
+		if req.PostType == PostTypeReply && parentID != nil {
+			parent, parentErr := s.repo.GetByID(ctx, *parentID)
+			if parentErr == nil && parent.AuthorID != authorID {
+				postIDCopy := postID
+				if pubErr := s.notifier.PublishPostEvent(ctx, PostNotificationEvent{
+					RecipientID: parent.AuthorID,
+					ActorID:     authorID,
+					Event:       "reply",
+					PostID:      &postIDCopy,
+				}); pubErr != nil {
+					s.log.Warn("post: publish reply notification failed",
+						zap.String("post_id", postID.String()),
+						zap.Error(pubErr),
+					)
+				}
+			}
+		}
+
+		// Mention notifications: notify each mentioned user.
+		for _, mentionedID := range mentionUserIDs {
+			if mentionedID == authorID {
+				continue
+			}
+			mentionedIDCopy := mentionedID
+			postIDCopy := postID
+			if pubErr := s.notifier.PublishPostEvent(ctx, PostNotificationEvent{
+				RecipientID: mentionedIDCopy,
+				ActorID:     authorID,
+				Event:       "mention",
+				PostID:      &postIDCopy,
+			}); pubErr != nil {
+				s.log.Warn("post: publish mention notification failed",
+					zap.String("post_id", postID.String()),
+					zap.String("mentioned_id", mentionedIDCopy.String()),
+					zap.Error(pubErr),
+				)
+			}
+		}
 	}
 
 	return ToDTO(created), nil

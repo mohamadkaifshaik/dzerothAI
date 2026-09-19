@@ -6,6 +6,7 @@
 package post
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -114,6 +115,26 @@ func ToDTO(p Post) PostDTO {
 		dto.QuotedPostID = &s
 	}
 	return dto
+}
+
+// ReactionChecker allows post.Handler to query whether a given user has reacted
+// to a post without importing the reaction package directly, avoiding a
+// potential circular dependency. reaction.Service satisfies this interface via
+// its HasReacted method.
+type ReactionChecker interface {
+	HasReacted(ctx context.Context, userID, postID uuid.UUID) (bool, error)
+}
+
+// PostDetailResponse is the response struct for GET /posts/{postID}.
+// It wraps PostDTO with viewer-only enrichment that must never appear on feed,
+// thread, bookmark, or search responses (CLAUDE.md §2.3).
+//
+// ViewerHasReacted uses *bool with omitempty so the field is fully absent from
+// the JSON response when the caller is unauthenticated (nil pointer).
+// Authenticated callers receive true or false explicitly.
+type PostDetailResponse struct {
+	PostDTO
+	ViewerHasReacted *bool `json:"viewer_has_reacted,omitempty"`
 }
 
 // FeedCursor is the decoded form of the opaque pagination cursor.

@@ -56,16 +56,19 @@ void main() {
     test('Post entity has no social-validation metric fields in props', () {
       // Post.props is the canonical Equatable field list.
       // Fields present: id, author, postType, content, parentId, threadRootId,
-      //   quotedPostId, isDeleted, createdAt, updatedAt — exactly 10.
-      // No metric field (like_count, impression_count, etc.) may be present.
+      //   quotedPostId, isDeleted, createdAt, updatedAt, viewerHasReacted — 11.
+      // viewerHasReacted is a private viewer-state field (not a public metric).
+      // No social-validation metric field (like_count, impression_count, etc.)
+      // may be present.
       final props = _post.props;
 
       expect(
         props.length,
-        10,
+        11,
         reason:
-            'Post.props must have exactly 10 entries — '
-            'no social-validation metric fields (CLAUDE.md §2.3)',
+            'Post.props must have exactly 11 entries — '
+            'no social-validation metric fields (CLAUDE.md §2.3); '
+            'viewerHasReacted is a private viewer-state field, not a metric',
       );
     });
 

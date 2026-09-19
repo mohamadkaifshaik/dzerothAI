@@ -11,6 +11,7 @@ import '../../features/block/domain/repositories/block_repository.dart';
 import '../../features/block/presentation/bloc/block_bloc.dart';
 import '../../features/bookmark/domain/repositories/bookmark_repository.dart';
 import '../../features/bookmark/presentation/bloc/bookmark_list_bloc.dart';
+import '../../features/bookmark/presentation/bloc/bookmark_toggle_bloc.dart';
 import '../../features/bookmark/presentation/screens/bookmark_list_screen.dart';
 import '../../features/feed/data/repositories/feed_repository_impl.dart';
 import '../../features/feed/presentation/bloc/home_feed_bloc.dart';
@@ -27,6 +28,14 @@ import '../../features/profile/domain/repositories/profile_repository.dart';
 import '../../features/profile/presentation/bloc/profile_bloc.dart';
 import '../../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
+import '../../features/notification/domain/repositories/notification_repository.dart';
+import '../../features/notification/presentation/bloc/notification_list_bloc.dart';
+import '../../features/notification/presentation/screens/notification_list_screen.dart';
+import '../../features/reaction/domain/repositories/reaction_repository.dart';
+import '../../features/reaction/presentation/bloc/reaction_toggle_bloc.dart';
+import '../../features/search/data/repositories/search_repository_impl.dart';
+import '../../features/search/presentation/bloc/search_bloc.dart';
+import '../../features/search/presentation/screens/search_screen.dart';
 import '../../features/shell/presentation/screens/app_shell.dart';
 
 /// A [ChangeNotifier] that listens to an [AuthBloc] stream and notifies
@@ -58,6 +67,9 @@ GoRouter createAppRouter({
   required FollowRepository Function() followRepositoryFactory,
   required BlockRepository Function() blockRepositoryFactory,
   required BookmarkRepository Function() bookmarkRepositoryFactory,
+  required ReactionRepository Function() reactionRepositoryFactory,
+  required NotificationRepository Function() notificationRepositoryFactory,
+  required SearchRepositoryImpl Function() searchRepositoryFactory,
 }) {
   final refreshStream = GoRouterRefreshStream(authBloc.stream);
 
@@ -111,11 +123,25 @@ GoRouter createAppRouter({
           ),
           GoRoute(
             path: '/home/search',
-            builder: (context, state) => const SearchPlaceholderScreen(),
+            builder: (context, state) => BlocProvider(
+              create: (_) =>
+                  SearchBloc(searchRepository: searchRepositoryFactory()),
+              child: const SearchScreen(),
+            ),
           ),
           GoRoute(
             path: '/home/notifications',
-            builder: (context, state) => const NotificationsPlaceholderScreen(),
+            redirect: (context, state) {
+              final authState = authBloc.state;
+              if (authState is! AuthAuthenticated) return '/auth/login';
+              return null;
+            },
+            builder: (context, state) => BlocProvider(
+              create: (_) => NotificationListBloc(
+                notificationRepository: notificationRepositoryFactory(),
+              ),
+              child: const NotificationListScreen(),
+            ),
           ),
           // /home/profile redirects to the current user's profile page.
           GoRoute(
@@ -267,6 +293,19 @@ GoRouter createAppRouter({
                       feedType: FeedType.threadReplies,
                     ),
                   ),
+              ),
+              BlocProvider(
+                create: (_) => BookmarkToggleBloc(
+                  bookmarkRepository: bookmarkRepositoryFactory(),
+                  postId: postId,
+                ),
+              ),
+              BlocProvider(
+                create: (_) => ReactionToggleBloc(
+                  reactionRepository: reactionRepositoryFactory(),
+                  postId: postId,
+                  initiallyReacted: false,
+                ),
               ),
             ],
             child: PostDetailScreen(postId: postId),

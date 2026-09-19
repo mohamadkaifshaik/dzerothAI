@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 )
 
@@ -16,13 +17,21 @@ const maxFollowDepth = 200
 
 // Service implements follow domain business logic.
 type Service struct {
-	repo *Repository
-	log  *zap.Logger
+	repo     *Repository
+	log      *zap.Logger
+	notifier notification.NotificationPublisher
 }
 
 // NewService constructs a follow Service.
 func NewService(repo *Repository, log *zap.Logger) *Service {
 	return &Service{repo: repo, log: log}
+}
+
+// SetNotificationPublisher injects a NotificationPublisher dependency. Must be
+// called after NewService and before the first request is served. Concurrency-safe
+// if called during the single-threaded startup phase before the HTTP server starts.
+func (s *Service) SetNotificationPublisher(np notification.NotificationPublisher) {
+	s.notifier = np
 }
 
 // Follow creates a directed follow from callerID → targetID.
@@ -48,6 +57,23 @@ func (s *Service) Follow(ctx context.Context, callerID, targetID uuid.UUID) erro
 	if err := s.repo.Follow(ctx, callerID, targetID); err != nil {
 		s.log.Error("follow: insert", zap.Error(err))
 		return apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
+	}
+
+	// Publish best-effort follow notification. Failure must not fail the primary
+	// follow operation (CLAUDE.md reliability rules).
+	if s.notifier != nil {
+		if pubErr := s.notifier.Publish(ctx, notification.PublishEvent{
+			RecipientID: targetID,
+			ActorID:     callerID,
+			Event:       notification.EventFollow,
+			PostID:      nil,
+		}); pubErr != nil {
+			s.log.Warn("follow: publish notification failed",
+				zap.String("caller_id", callerID.String()),
+				zap.String("target_id", targetID.String()),
+				zap.Error(pubErr),
+			)
+		}
 	}
 
 	return nil

@@ -171,6 +171,7 @@ Authorization: Bearer <jwt_access_token>
 ```
 
 - No likes, impressions, bookmark counts, follower counts, or equivalent metrics are present in this DTO.
+- Authenticated callers receive an additional `viewer_has_reacted: bool` field. The field is absent for unauthenticated requests.
 
 #### `DELETE /api/v1/posts/{postId}` — Soft delete post
 
@@ -306,15 +307,25 @@ Authorization: Bearer <jwt_access_token>
 
 - Owner-only. `BookmarkDTO` is never nested inside `PostDTO`. No `bookmark_count` field exists anywhere.
 
-### Phase 4+ (not yet designed — do not implement)
+### Phase 4 — Reactions, notifications, search
+
+| Area | Method | Endpoint | Status | Notes |
+|---|---|---|---|---|
+| Reactions | `POST` | `/api/v1/posts/{postID}/react` | IMPLEMENTED | Auth required. Idempotent. Returns 204. Rate limited: 120/15min (fail-open). |
+| Reactions | `DELETE` | `/api/v1/posts/{postID}/react` | IMPLEMENTED | Auth required. No-op if not reacted. Returns 204. |
+| Notifications | `GET` | `/api/v1/me/notifications` | IMPLEMENTED | Auth required. Owner-only. Cursor-paginated. `terminated: true` at 100 items. |
+| Notifications | `PUT` | `/api/v1/me/notifications/read` | IMPLEMENTED | Auth required. Marks all caller's notifications read. Returns 204. |
+| Search | `GET` | `/api/v1/search/posts?q=` | IMPLEMENTED | Auth optional. Cursor-paginated. `terminated: true` at 50 items. Empty `q` returns 400. |
+| Search | `GET` | `/api/v1/search/users?q=` | IMPLEMENTED | Auth optional. Cursor-paginated. `terminated: true` at 50 items. Empty `q` returns 400. |
+
+**Notes on `GET /api/v1/posts/{postID}`:** when the caller is authenticated, the response includes a `viewer_has_reacted: bool` field. For unauthenticated callers the field is absent. All other public DTO constraints (zero social-validation metrics) remain in force.
+
+### Phase 5+ (not yet designed — do not implement)
 
 | Area | Endpoint | Status | Notes |
 |---|---|---|---|
 | Feed | `/api/v1/feeds/inner-circle` | DEFERRED | Requires separate architecture design. |
 | Feed | `/api/v1/feeds/discovery` | DEFERRED | Requires content ranking logic. |
-| Reactions | Reaction endpoints | PLANNED | Phase 4 — define only after interaction model design. |
-| Search | Search endpoints | PLANNED | Phase 4 — define only after search architecture. |
-| Notifications | Notification endpoints | PLANNED | Phase 4 — define only after notification model design. |
 
 ---
 

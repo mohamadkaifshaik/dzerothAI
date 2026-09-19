@@ -4,7 +4,6 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:dzeroth/core/error/failures.dart';
 import 'package:dzeroth/core/error/result.dart';
-import 'package:dzeroth/features/follow/domain/entities/follow_page.dart';
 import 'package:dzeroth/features/follow/domain/repositories/follow_repository.dart';
 import 'package:dzeroth/features/follow/presentation/bloc/follow_bloc.dart';
 

@@ -34,9 +34,9 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-015 | Privacy | Hide public validation metrics | IMPLEMENTED | Phase 2/3 — zero metric fields in PostDTO, FollowUserDTO, BookmarkDTO; enforced by reflection tests |
 | F-016 | Social | Repost/retweet-style sharing | IMPLEMENTED | Phase 2 (`post_type=repost`) + Phase 3 (idempotency via migration 0009 partial unique index, 5-second countdown) |
 | F-017 | Social | Quote posts | IMPLEMENTED | Phase 2 (`post_type=quote`, 5-distinct-word rule) + Phase 3 (5-second countdown enforced in PostComposeBloc) |
-| F-018 | Social | Bookmarks | IMPLEMENTED | Phase 3 — `internal/bookmark/`, migration 0008, owner-scoped, Flutter `features/bookmark/`; PARTIAL: bookmark toggle not wired in PostDetailScreen thread view (Phase 4) |
-| F-019 | Discovery | Search | PLANNED | Phase 4 |
-| F-020 | Notifications | Notifications | PLANNED | Phase 4 |
+| F-018 | Social | Bookmarks | IMPLEMENTED | Phase 3 — `internal/bookmark/`, migration 0008, owner-scoped, Flutter `features/bookmark/`; PostDetailScreen bookmark wiring fixed in Phase 4 Wave 0 |
+| F-019 | Discovery | Search | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
+| F-020 | Notifications | Notifications | IMPLEMENTED | Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
 | F-021 | Safety | Reporting | PLANNED | Phase 5 |
 | F-022 | Safety | Block/mute | IMPLEMENTED | Phase 1 (schema: blocks/mutes tables, migration 0003) + Phase 3 (full enforcement: `internal/block/`, atomic block+unfollow transaction, feed/profile filtering, Flutter `features/block/`) |
 | F-023 | Creator | Private Creator Studio | PLANNED | Phase 5 |
@@ -44,6 +44,9 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-025 | Operations | Observability | PLANNED | Phase 7 |
 | F-026 | Operations | CI/CD and deployment | PLANNED | Phase 8 |
 | F-027 | Social | Follow/follower system | IMPLEMENTED | Phase 3 — `internal/follow/`, migration 0007, instant follow, `IsBlockedBy` check, private-account enforcement, Flutter `features/follow/` |
+| F-028 | Social | Reactions/likes | IMPLEMENTED | Phase 4 — `internal/reaction/`, migration 0010, Flutter `features/reaction/` |
+| F-029 | Notifications | Notifications | IMPLEMENTED | Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
+| F-030 | Discovery | Search (posts + users) | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
 
 ## Update protocol
 

@@ -41,6 +41,10 @@ class PostAuthorDto {
 /// bookmark_count, reply_count, repost_count, view_count, share_count, or
 /// any equivalent field.  If the backend ever returns such a field it is
 /// silently ignored here.
+///
+/// [viewerHasReacted] is a private viewer-state field populated only on
+/// single-post detail responses for authenticated callers. It must never be
+/// displayed as a count or public signal.
 class PostDto {
   const PostDto({
     required this.id,
@@ -53,6 +57,7 @@ class PostDto {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.viewerHasReacted,
   });
 
   final String id;
@@ -65,6 +70,10 @@ class PostDto {
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
+
+  /// Present only on single-post detail responses with authentication.
+  /// Absent (null) in feed, thread, search, and unauthenticated responses.
+  final bool? viewerHasReacted;
 
   factory PostDto.fromJson(Map<String, dynamic> json) {
     final authorRaw = json['author'];
@@ -91,6 +100,7 @@ class PostDto {
       isDeleted: (json['is_deleted'] as bool?) ?? false,
       createdAt: json['created_at'] as String,
       updatedAt: json['updated_at'] as String,
+      viewerHasReacted: json['viewer_has_reacted'] as bool?,
     );
   }
 
@@ -105,6 +115,7 @@ class PostDto {
     isDeleted: isDeleted,
     createdAt: DateTime.parse(createdAt),
     updatedAt: DateTime.parse(updatedAt),
+    viewerHasReacted: viewerHasReacted,
   );
 }
 

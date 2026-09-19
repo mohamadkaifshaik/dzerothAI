@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../../../features/bookmark/presentation/bloc/bookmark_toggle_bloc.dart';
+import '../../../../features/reaction/presentation/bloc/reaction_toggle_bloc.dart';
 import '../../domain/entities/post.dart';
 
 /// Renders a single post in a list or feed.
@@ -84,7 +85,93 @@ class _PostActions extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return Row(children: [_BookmarkIcon(post: post)]);
+    return Row(
+      children: [
+        _ReactionIcon(post: post),
+        _BookmarkIcon(post: post),
+      ],
+    );
+  }
+}
+
+/// Reaction (heart) toggle icon button.
+///
+/// Reads [ReactionToggleBloc] from context. If no BLoC is present in the tree
+/// (e.g. feed/thread contexts where viewer reaction state is not available),
+/// the widget renders silently as an empty widget — it does NOT show a
+/// fallback icon with an unknown state.
+///
+/// The reaction icon is shown only when [ReactionToggleBloc] is in the tree,
+/// which is wired at the PostDetail route level where [viewer_has_reacted] is
+/// available from the single-post endpoint.
+///
+/// PUBLIC METRICS LOCKDOWN: no reaction count label is ever rendered
+/// (CLAUDE.md §2.3).
+///
+/// NO 5-SECOND COUNTDOWN: reactions are not subject to share/quote friction
+/// (CLAUDE.md §2.2 applies only to share and quote actions).
+class _ReactionIcon extends StatelessWidget {
+  const _ReactionIcon({required this.post});
+
+  final Post post;
+
+  @override
+  Widget build(BuildContext context) {
+    // ReactionToggleBloc is optional: if none is provided in the tree the
+    // reaction icon is hidden gracefully. This ensures feed/thread PostCards
+    // never render an uncertain reaction state.
+    final bloc = _tryReadBloc(context);
+    if (bloc == null) return const SizedBox.shrink();
+
+    return BlocBuilder<ReactionToggleBloc, ReactionToggleState>(
+      builder: (context, state) {
+        final isReacted = switch (state) {
+          ReactionOn() => true,
+          _ => false,
+        };
+        final isLoading = state is ReactionLoading;
+
+        return Semantics(
+          label: isReacted ? 'Remove reaction' : 'React',
+          button: true,
+          child: IconButton(
+            iconSize: 20,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            icon: isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  )
+                : Icon(
+                    isReacted ? Icons.favorite : Icons.favorite_border,
+                    color: isReacted
+                        ? Theme.of(context).colorScheme.error
+                        : null,
+                  ),
+            onPressed: isLoading
+                ? null
+                : () {
+                    context.read<ReactionToggleBloc>().add(
+                      const ReactionToggleRequested(),
+                    );
+                  },
+          ),
+        );
+      },
+    );
+  }
+
+  /// Returns the nearest [ReactionToggleBloc] in the tree, or null if none
+  /// has been provided. This avoids a hard crash when PostCard is rendered
+  /// in contexts where no reaction BLoC has been wired up yet (feed, thread).
+  ReactionToggleBloc? _tryReadBloc(BuildContext context) {
+    try {
+      return context.read<ReactionToggleBloc>();
+    } catch (_) {
+      return null;
+    }
   }
 }
 

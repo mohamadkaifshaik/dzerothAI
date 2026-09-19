@@ -87,11 +87,24 @@ func (f *fakeService) ListThreadReplies(ctx context.Context, threadRootID uuid.U
 // testableHandler — handler wired to a postSvc interface
 // ---------------------------------------------------------------------------
 
+// fakeReactionChecker is a test double for ReactionChecker.
+type fakeReactionChecker struct {
+	hasReactedFn func(ctx context.Context, userID, postID uuid.UUID) (bool, error)
+}
+
+func (f *fakeReactionChecker) HasReacted(ctx context.Context, userID, postID uuid.UUID) (bool, error) {
+	if f.hasReactedFn != nil {
+		return f.hasReactedFn(ctx, userID, postID)
+	}
+	return false, nil
+}
+
 // testableHandler mirrors Handler but accepts the postSvc interface so a
 // fakeService can be injected for unit tests.
 type testableHandler struct {
-	svc postSvc
-	log *zap.Logger
+	svc             postSvc
+	log             *zap.Logger
+	reactionChecker ReactionChecker
 }
 
 func newTestableHandler(svc postSvc) *testableHandler {
@@ -144,7 +157,16 @@ func (h *testableHandler) getPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"post": dto})
+	resp := PostDetailResponse{PostDTO: dto}
+
+	if callerID, authed := auth.UserIDFromContext(r.Context()); authed && h.reactionChecker != nil {
+		reacted, reactionErr := h.reactionChecker.HasReacted(r.Context(), callerID, postID)
+		if reactionErr == nil {
+			resp.ViewerHasReacted = &reacted
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"post": resp})
 }
 
 func (h *testableHandler) deletePost(w http.ResponseWriter, r *http.Request) {
@@ -517,5 +539,123 @@ func TestListUserPostsHandler_Terminated(t *testing.T) {
 	}
 	if !page.Terminated {
 		t.Errorf("expected terminated=true in response, got false\nbody: %s", rec.Body.Bytes())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestGetPostHandler_ViewerHasReacted_Unauthenticated
+// ---------------------------------------------------------------------------
+
+// TestGetPostHandler_ViewerHasReacted_Unauthenticated verifies that an
+// unauthenticated GET /posts/{postID} returns 200 with viewer_has_reacted
+// fully absent from the JSON (not false, not null). CLAUDE.md §2.3.
+func TestGetPostHandler_ViewerHasReacted_Unauthenticated(t *testing.T) {
+	postID := uuid.New()
+	authorID := uuid.New()
+	content := "hello"
+
+	fake := &fakeService{
+		getPostFn: func(_ context.Context, id uuid.UUID) (PostDTO, error) {
+			return PostDTO{
+				ID:       id.String(),
+				AuthorID: authorID.String(),
+				Author:   PostAuthor{ID: authorID.String(), Handle: "author", DisplayName: "Author"},
+				PostType: PostTypeOriginal,
+				Content:  &content,
+			}, nil
+		},
+	}
+	h := newTestableHandler(fake)
+	h.reactionChecker = &fakeReactionChecker{
+		hasReactedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) {
+			return true, nil
+		},
+	}
+
+	// Unauthenticated request — no JWT.
+	req := httptest.NewRequest(http.MethodGet, "/posts/"+postID.String(), nil)
+	req = newChiContextWithParam(req, "postID", postID.String())
+	rec := httptest.NewRecorder()
+
+	h.getPost(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	// viewer_has_reacted must be fully absent for unauthenticated requests.
+	body := rec.Body.String()
+	if strings.Contains(body, "viewer_has_reacted") {
+		t.Errorf("unauthenticated response must not contain viewer_has_reacted, got: %s", body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestGetPostHandler_ViewerHasReacted_Authenticated
+// ---------------------------------------------------------------------------
+
+// TestGetPostHandler_ViewerHasReacted_Authenticated verifies that an
+// authenticated GET /posts/{postID} returns viewer_has_reacted in the JSON.
+// Both true and false must be serialized explicitly. CLAUDE.md §2.3.
+func TestGetPostHandler_ViewerHasReacted_Authenticated(t *testing.T) {
+	postID := uuid.New()
+	authorID := uuid.New()
+	callerID := uuid.New()
+	content := "hello"
+
+	for _, wantReacted := range []bool{true, false} {
+		reacted := wantReacted
+		fake := &fakeService{
+			getPostFn: func(_ context.Context, id uuid.UUID) (PostDTO, error) {
+				return PostDTO{
+					ID:       id.String(),
+					AuthorID: authorID.String(),
+					Author:   PostAuthor{ID: authorID.String(), Handle: "author", DisplayName: "Author"},
+					PostType: PostTypeOriginal,
+					Content:  &content,
+				}, nil
+			},
+		}
+		h := newTestableHandler(fake)
+		h.reactionChecker = &fakeReactionChecker{
+			hasReactedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) {
+				return reacted, nil
+			},
+		}
+
+		req := makeAuthedRequest(t, http.MethodGet, "/posts/"+postID.String(), nil, callerID)
+		req = newChiContextWithParam(req, "postID", postID.String())
+		rec := applyJWT(h.getPost, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("wantReacted=%v: status = %d, want 200", wantReacted, rec.Code)
+			continue
+		}
+
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("wantReacted=%v: unmarshal: %v", wantReacted, err)
+		}
+		postRaw, ok := envelope["post"]
+		if !ok {
+			t.Errorf("wantReacted=%v: response missing 'post' key", wantReacted)
+			continue
+		}
+		var detail map[string]json.RawMessage
+		if err := json.Unmarshal(postRaw, &detail); err != nil {
+			t.Fatalf("wantReacted=%v: unmarshal post: %v", wantReacted, err)
+		}
+		raw, present := detail["viewer_has_reacted"]
+		if !present {
+			t.Errorf("wantReacted=%v: viewer_has_reacted absent from authenticated response", wantReacted)
+			continue
+		}
+		var gotReacted bool
+		if err := json.Unmarshal(raw, &gotReacted); err != nil {
+			t.Fatalf("wantReacted=%v: unmarshal viewer_has_reacted: %v", wantReacted, err)
+		}
+		if gotReacted != wantReacted {
+			t.Errorf("wantReacted=%v: got viewer_has_reacted=%v", wantReacted, gotReacted)
+		}
 	}
 }
