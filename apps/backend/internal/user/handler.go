@@ -48,6 +48,7 @@ func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
 		r.Put("/me", h.updateMe)
 		r.Get("/me/settings", h.getSettings)
 		r.Put("/me/settings", h.updateSettings)
+		r.Delete("/me/account", h.deleteAccount)
 		r.Get("/users/{id}", h.getUserByID)
 	})
 }
@@ -150,6 +151,28 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 			"is_private": u.IsPrivate,
 		},
 	})
+}
+
+// deleteAccount handles DELETE /api/v1/me/account.
+// Suspends the authenticated caller's own account and revokes all their sessions.
+// Returns HTTP 204 No Content on success. Idempotent: an already-suspended
+// account still returns 204.
+func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		apierror.Render(w, http.StatusUnauthorized,
+			apierror.New(apierror.CodeUnauthorized, "Not authenticated."))
+		return
+	}
+
+	if err := h.svc.SuspendSelf(r.Context(), userID); err != nil {
+		h.log.Error("user: delete account failed", zap.Error(err))
+		apierror.Render(w, http.StatusInternalServerError,
+			apierror.New(apierror.CodeInternal, "An unexpected error occurred."))
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // getUserByID handles GET /api/v1/users/{id}.

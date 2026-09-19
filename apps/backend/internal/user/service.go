@@ -22,15 +22,40 @@ type UpdateProfileInput struct {
 	WebsiteURL  *string `json:"website_url"`
 }
 
+// SessionRevoker is satisfied by the auth repository or service.
+// Defined here to avoid a circular import between the user and auth packages.
+type SessionRevoker interface {
+	RevokeAllSessions(ctx context.Context, userID uuid.UUID) error
+}
+
 // Service implements user profile business logic.
 type Service struct {
-	pool *pgxpool.Pool
-	log  *zap.Logger
+	pool           *pgxpool.Pool
+	log            *zap.Logger
+	sessionRevoker SessionRevoker
 }
 
 // NewService constructs a user Service.
 func NewService(pool *pgxpool.Pool, log *zap.Logger) *Service {
 	return &Service{pool: pool, log: log}
+}
+
+// SetSessionRevoker injects a SessionRevoker. Must be called after NewService
+// and before the first request is served when session revocation on self-suspension
+// is desired.
+func (s *Service) SetSessionRevoker(sr SessionRevoker) {
+	s.sessionRevoker = sr
+}
+
+// UserExists returns true when a user row with the given ID exists.
+// Satisfies the report.UserChecker interface.
+// Any repository error is treated as "not found" (returns false, nil).
+func (s *Service) UserExists(ctx context.Context, userID uuid.UUID) (bool, error) {
+	_, err := GetByID(ctx, s.pool, userID)
+	if err != nil {
+		return false, nil
+	}
+	return true, nil
 }
 
 // GetProfile retrieves a user by ID. Returns ErrNotFound if the user does not exist.
@@ -102,6 +127,29 @@ func (s *Service) UpdateSettings(ctx context.Context, callerID uuid.UUID, isPriv
 		return nil, fmt.Errorf("user: update settings: %w", err)
 	}
 	return u, nil
+}
+
+// SuspendSelf sets is_suspended = TRUE for the authenticated caller.
+// The operation is idempotent: suspending an already-suspended account returns nil.
+// After the database write succeeds, all sessions are revoked via the configured
+// SessionRevoker. Session revocation is best-effort: a failure is logged at WARN
+// but does NOT cause SuspendSelf to return an error, because the account is
+// already suspended and new logins are blocked.
+func (s *Service) SuspendSelf(ctx context.Context, callerID uuid.UUID) error {
+	if err := SuspendSelf(ctx, s.pool, callerID); err != nil {
+		return fmt.Errorf("user: suspend self: %w", err)
+	}
+
+	if s.sessionRevoker != nil {
+		if err := s.sessionRevoker.RevokeAllSessions(ctx, callerID); err != nil {
+			s.log.Warn("user: suspend self: session revocation failed (best-effort)",
+				zap.String("user_id", callerID.String()),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return nil
 }
 
 // ProfileValidationError is returned when profile update input fails validation.

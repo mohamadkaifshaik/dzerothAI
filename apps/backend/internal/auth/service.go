@@ -181,6 +181,17 @@ func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
 	return nil
 }
 
+// RevokeAllSessions removes every session row for the given user, immediately
+// invalidating all active refresh tokens. This method satisfies the
+// user.SessionRevoker interface, allowing the user package to trigger session
+// revocation without a circular import.
+func (s *Service) RevokeAllSessions(ctx context.Context, userID uuid.UUID) error {
+	if err := DeleteAllUserSessions(ctx, s.pool, userID); err != nil {
+		return fmt.Errorf("auth: revoke all sessions: %w", err)
+	}
+	return nil
+}
+
 // issueTokenPair generates an access token and a new refresh token, creates a session
 // row, and returns the pair. ipAddress and userAgent are optional audit fields.
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) (*TokenPair, error) {

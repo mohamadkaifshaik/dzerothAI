@@ -106,6 +106,18 @@ func Update(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID, input UpdateI
 	return scanUser(row)
 }
 
+// SuspendSelf sets is_suspended = TRUE for the given user.
+// The operation is idempotent: if the account is already suspended the UPDATE
+// affects zero rows but no error is returned.
+func SuspendSelf(ctx context.Context, pool *pgxpool.Pool, callerID uuid.UUID) error {
+	const q = `UPDATE users SET is_suspended = TRUE WHERE id = $1`
+	_, err := pool.Exec(ctx, q, callerID)
+	if err != nil {
+		return fmt.Errorf("user: suspend self: %w", err)
+	}
+	return nil
+}
+
 // scanUser scans a single users row into a User struct.
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
