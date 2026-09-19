@@ -320,6 +320,74 @@ Authorization: Bearer <jwt_access_token>
 
 **Notes on `GET /api/v1/posts/{postID}`:** when the caller is authenticated, the response includes a `viewer_has_reacted: bool` field. For unauthenticated callers the field is absent. All other public DTO constraints (zero social-validation metrics) remain in force.
 
+### Phase 5 — Safety and creator functionality
+
+| Area | Method | Endpoint | Status | Notes |
+|---|---|---|---|---|
+| Reports | `POST` | `/api/v1/posts/{postId}/report` | IMPLEMENTED | Auth required. Idempotent (duplicate pending → 204 no-op). Rate limited: 10/15min fail-closed. Self-report returns 400. Block relationships do not prevent reporting. |
+| Reports | `POST` | `/api/v1/users/{userId}/report` | IMPLEMENTED | Auth required. Same rules as post report. |
+| Studio | `GET` | `/api/v1/me/studio/analytics` | IMPLEMENTED | Auth required. Owner-scoped (JWT callerID only). Cursor-paginated. `terminated: true` at 50 items. Response: `PostAnalytics` items — private aggregate counts only (reactions, bookmarks, replies, quotes). Zero public metrics. |
+| Identity | `DELETE` | `/api/v1/me/account` | IMPLEMENTED | Auth required. Soft-suspends account (`is_suspended=TRUE`). Revokes all refresh tokens immediately. Returns 204. Idempotent. |
+
+#### `POST /api/v1/posts/{postId}/report` and `POST /api/v1/users/{userId}/report` — Submit report
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Request body:**
+
+```json
+{
+  "reason": "spam | harassment | misinformation | hate_speech | violence | other",
+  "detail": "Optional free-text up to 500 characters."
+}
+```
+
+**Response:** `204 No Content`.
+
+**Key behaviors:**
+
+- Reporter identity is stored server-side but never returned in any response.
+- Duplicate pending report from same reporter → `ON CONFLICT DO NOTHING` → 204 (idempotent).
+- Self-report → `400 VALIDATION_ERROR`.
+- Block relationships do not prevent reporting.
+- Rate limit exceeded → `429 Too Many Requests`.
+
+#### `GET /api/v1/me/studio/analytics` — Creator Studio analytics
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Query parameters:**
+
+- `cursor` (optional): opaque base64url cursor.
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [
+    {
+      "post_id": "<uuid-v7>",
+      "content": "Post text.",
+      "post_type": "original | reply | quote | repost",
+      "created_at": "2026-09-18T12:00:00Z",
+      "reaction_count": 0,
+      "bookmark_count": 0,
+      "reply_count": 0,
+      "quote_count": 0
+    }
+  ],
+  "next_cursor": "<base64url | null>",
+  "terminated": true
+}
+```
+
+**Key behaviors:**
+
+- Scoped to caller only — no path param accepted.
+- `terminated: true` at server-enforced max of 50 posts. Flutter renders `GoTouchGrassWidget`.
+- All count fields are private analytics. They must never appear in any public DTO.
+- Soft-deleted posts excluded.
+
 ### Phase 5+ (not yet designed — do not implement)
 
 | Area | Endpoint | Status | Notes |

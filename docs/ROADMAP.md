@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 next`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 next`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
@@ -78,15 +78,16 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 ## Phase 5 — Safety and creator functionality
 
-- [ ] Reporting
-- [ ] Moderation actions
-- [ ] Abuse/rate limiting
-- [ ] Creator Studio
-- [ ] Private analytics only
-- [ ] Privacy controls
-- [ ] Secure creator data access
+- [x] Reporting (report submission: posts + users; migration 0013; rate limited; idempotent)
+- [ ] Moderation actions — deferred to Phase 7 (requires full security review)
+- [x] Abuse/rate limiting (fail-closed rate limiting on report submission)
+- [x] Creator Studio (private analytics: reactions, bookmarks, replies, quotes per post; owner-scoped; terminated at 50 items)
+- [x] Private analytics only (PostAnalytics never in public DTO; enforced by struct design)
+- [x] Privacy controls (real SettingsScreen: private-account toggle, account suspension)
+- [x] Secure creator data access (Studio endpoint JWT callerID-scoped, no path param)
+- [x] Self-suspension (DELETE /me/account; revokes sessions; is_suspended=TRUE)
 
-**Exit gate:** safety controls and creator analytics do not leak public validation metrics.
+**Exit gate:** safety controls and creator analytics do not leak public validation metrics. ✓ (Moderator queue deferred to Phase 7)
 
 ## Phase 6 — Localized rankings and weekly titles
 

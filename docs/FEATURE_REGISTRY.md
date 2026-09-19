@@ -37,9 +37,9 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-018 | Social | Bookmarks | IMPLEMENTED | Phase 3 — `internal/bookmark/`, migration 0008, owner-scoped, Flutter `features/bookmark/`; PostDetailScreen bookmark wiring fixed in Phase 4 Wave 0 |
 | F-019 | Discovery | Search | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
 | F-020 | Notifications | Notifications | IMPLEMENTED | Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
-| F-021 | Safety | Reporting | PLANNED | Phase 5 |
+| F-021 | Safety | Reporting | IMPLEMENTED | Phase 5 — `internal/report/`, migration 0013, Flutter `features/report/`; `POST /api/v1/posts/{postId}/report` + `POST /api/v1/users/{userId}/report`; moderator queue deferred to Phase 7 |
 | F-022 | Safety | Block/mute | IMPLEMENTED | Phase 1 (schema: blocks/mutes tables, migration 0003) + Phase 3 (full enforcement: `internal/block/`, atomic block+unfollow transaction, feed/profile filtering, Flutter `features/block/`) |
-| F-023 | Creator | Private Creator Studio | PLANNED | Phase 5 |
+| F-023 | Creator | Private Creator Studio | IMPLEMENTED | Phase 5 — `internal/studio/`, Flutter `features/studio/`; `GET /api/v1/me/studio/analytics`; current-state aggregates only; owner-scoped; terminated at 50 items |
 | F-024 | Ranking | Localized weekly titles | PLANNED | Phase 6 |
 | F-025 | Operations | Observability | PLANNED | Phase 7 |
 | F-026 | Operations | CI/CD and deployment | PLANNED | Phase 8 |
@@ -47,6 +47,8 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-028 | Social | Reactions/likes | IMPLEMENTED | Phase 4 — `internal/reaction/`, migration 0010, Flutter `features/reaction/` |
 | F-029 | Notifications | Notifications | IMPLEMENTED | Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
 | F-030 | Discovery | Search (posts + users) | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
+| F-031 | Settings | Account settings and privacy | IMPLEMENTED | Phase 5 — `GET/PUT /api/v1/me/settings` (Phase 1 backend), Flutter `features/settings/`; real SettingsScreen replaces placeholder |
+| F-032 | Safety | Self-suspension | IMPLEMENTED | Phase 5 — `DELETE /api/v1/me/account` (`internal/user/`), `auth.RevokeAllSessions`, Flutter SettingsScreen confirmation dialog; `is_suspended=TRUE` soft-suspend |
 
 ## Update protocol
 
