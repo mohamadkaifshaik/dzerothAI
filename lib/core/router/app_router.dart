@@ -18,6 +18,9 @@ import '../../features/feed/presentation/bloc/home_feed_bloc.dart';
 import '../../features/feed/presentation/screens/home_feed_screen.dart';
 import '../../features/follow/domain/repositories/follow_repository.dart';
 import '../../features/follow/presentation/bloc/follow_bloc.dart';
+import '../../features/notification/domain/repositories/notification_repository.dart';
+import '../../features/notification/presentation/bloc/notification_list_bloc.dart';
+import '../../features/notification/presentation/screens/notification_list_screen.dart';
 import '../../features/post/domain/repositories/post_repository.dart';
 import '../../features/post/presentation/bloc/post_compose_bloc.dart';
 import '../../features/post/presentation/bloc/post_detail_bloc.dart';
@@ -28,15 +31,19 @@ import '../../features/profile/domain/repositories/profile_repository.dart';
 import '../../features/profile/presentation/bloc/profile_bloc.dart';
 import '../../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
-import '../../features/notification/domain/repositories/notification_repository.dart';
-import '../../features/notification/presentation/bloc/notification_list_bloc.dart';
-import '../../features/notification/presentation/screens/notification_list_screen.dart';
 import '../../features/reaction/domain/repositories/reaction_repository.dart';
 import '../../features/reaction/presentation/bloc/reaction_toggle_bloc.dart';
+import '../../features/report/domain/repositories/report_repository.dart';
 import '../../features/search/data/repositories/search_repository_impl.dart';
 import '../../features/search/presentation/bloc/search_bloc.dart';
 import '../../features/search/presentation/screens/search_screen.dart';
+import '../../features/settings/domain/repositories/settings_repository.dart';
+import '../../features/settings/presentation/bloc/settings_bloc.dart';
+import '../../features/settings/presentation/screens/settings_screen.dart';
 import '../../features/shell/presentation/screens/app_shell.dart';
+import '../../features/studio/domain/repositories/studio_repository.dart';
+import '../../features/studio/presentation/bloc/studio_bloc.dart';
+import '../../features/studio/presentation/screens/studio_screen.dart';
 
 /// A [ChangeNotifier] that listens to an [AuthBloc] stream and notifies
 /// go_router's [refreshListenable] when auth state changes.
@@ -70,6 +77,9 @@ GoRouter createAppRouter({
   required ReactionRepository Function() reactionRepositoryFactory,
   required NotificationRepository Function() notificationRepositoryFactory,
   required SearchRepositoryImpl Function() searchRepositoryFactory,
+  required StudioRepository Function() studioRepositoryFactory,
+  required SettingsRepository Function() settingsRepositoryFactory,
+  required ReportRepository Function() reportRepositoryFactory,
 }) {
   final refreshStream = GoRouterRefreshStream(authBloc.stream);
 
@@ -106,9 +116,15 @@ GoRouter createAppRouter({
         builder: (context, state) => const RegisterScreen(),
       ),
 
-      // Authenticated shell
+      // Authenticated shell — ReportRepository is provided here so all
+      // PostCard widgets rendered within the shell (feed, search results,
+      // bookmarks) can access it via context.read<ReportRepository>().
       ShellRoute(
-        builder: (context, state, child) => AppShell(child: child),
+        builder: (context, state, child) =>
+            RepositoryProvider<ReportRepository>(
+              create: (_) => reportRepositoryFactory(),
+              child: AppShell(child: child),
+            ),
         routes: [
           GoRoute(
             path: '/home/feed',
@@ -173,7 +189,9 @@ GoRouter createAppRouter({
         ],
       ),
 
-      // User profile (outside shell so it can be pushed as a full page)
+      // User profile (outside shell so it can be pushed as a full page).
+      // ReportRepository is provided here so ProfileScreen can open
+      // ReportSheet.forUser via context.read<ReportRepository>().
       GoRoute(
         path: '/users/:id',
         builder: (context, state) {
@@ -182,34 +200,37 @@ GoRouter createAppRouter({
           final isOwn =
               authState is AuthAuthenticated && authState.userId == userId;
 
-          return MultiBlocProvider(
-            providers: [
-              BlocProvider(
-                create: (_) =>
-                    ProfileBloc(profileRepository: profileRepositoryFactory())
-                      ..add(
-                        isOwn
-                            ? const OwnProfileLoadRequested()
-                            : ProfileLoadRequested(userId: userId),
-                      ),
-              ),
-              // FollowBloc and BlockBloc are always created so that the profile
-              // screen can conditionally show social actions without needing to
-              // rebuild the provider tree.
-              BlocProvider(
-                create: (_) => FollowBloc(
-                  followRepository: followRepositoryFactory(),
-                  targetUserId: userId,
+          return RepositoryProvider<ReportRepository>(
+            create: (_) => reportRepositoryFactory(),
+            child: MultiBlocProvider(
+              providers: [
+                BlocProvider(
+                  create: (_) =>
+                      ProfileBloc(profileRepository: profileRepositoryFactory())
+                        ..add(
+                          isOwn
+                              ? const OwnProfileLoadRequested()
+                              : ProfileLoadRequested(userId: userId),
+                        ),
                 ),
-              ),
-              BlocProvider(
-                create: (_) => BlockBloc(
-                  blockRepository: blockRepositoryFactory(),
-                  targetUserId: userId,
+                // FollowBloc and BlockBloc are always created so that the
+                // profile screen can conditionally show social actions without
+                // needing to rebuild the provider tree.
+                BlocProvider(
+                  create: (_) => FollowBloc(
+                    followRepository: followRepositoryFactory(),
+                    targetUserId: userId,
+                  ),
                 ),
-              ),
-            ],
-            child: ProfileScreen(userId: userId, isOwnProfile: isOwn),
+                BlocProvider(
+                  create: (_) => BlockBloc(
+                    blockRepository: blockRepositoryFactory(),
+                    targetUserId: userId,
+                  ),
+                ),
+              ],
+              child: ProfileScreen(userId: userId, isOwnProfile: isOwn),
+            ),
           );
         },
         routes: [
@@ -245,7 +266,16 @@ GoRouter createAppRouter({
       // Settings (outside shell)
       GoRoute(
         path: '/settings',
-        builder: (context, state) => const SettingsPlaceholderScreen(),
+        redirect: (context, state) {
+          final authState = authBloc.state;
+          if (authState is! AuthAuthenticated) return '/auth/login';
+          return null;
+        },
+        builder: (context, state) => BlocProvider(
+          create: (_) =>
+              SettingsBloc(settingsRepository: settingsRepositoryFactory()),
+          child: const SettingsScreen(),
+        ),
       ),
 
       // Post compose — requires authentication; outside shell (full-page).
@@ -273,44 +303,65 @@ GoRouter createAppRouter({
       ),
 
       // Post detail — public; outside shell (full-page).
+      // ReportRepository is provided here so PostCard renders within the
+      // thread can open ReportSheet.forPost.
       GoRoute(
         path: '/posts/:postId',
         builder: (context, state) {
           final postId = state.pathParameters['postId']!;
           final postRepository = postRepositoryFactory();
-          return MultiBlocProvider(
-            providers: [
-              BlocProvider(
-                create: (_) =>
-                    PostDetailBloc(postRepository: postRepository)
-                      ..add(PostDetailLoadRequested(postId: postId)),
-              ),
-              BlocProvider(
-                create: (_) => PostFeedBloc(postRepository: postRepository)
-                  ..add(
-                    PostFeedLoadRequested(
-                      subjectId: postId,
-                      feedType: FeedType.threadReplies,
+          return RepositoryProvider<ReportRepository>(
+            create: (_) => reportRepositoryFactory(),
+            child: MultiBlocProvider(
+              providers: [
+                BlocProvider(
+                  create: (_) =>
+                      PostDetailBloc(postRepository: postRepository)
+                        ..add(PostDetailLoadRequested(postId: postId)),
+                ),
+                BlocProvider(
+                  create: (_) => PostFeedBloc(postRepository: postRepository)
+                    ..add(
+                      PostFeedLoadRequested(
+                        subjectId: postId,
+                        feedType: FeedType.threadReplies,
+                      ),
                     ),
+                ),
+                BlocProvider(
+                  create: (_) => BookmarkToggleBloc(
+                    bookmarkRepository: bookmarkRepositoryFactory(),
+                    postId: postId,
                   ),
-              ),
-              BlocProvider(
-                create: (_) => BookmarkToggleBloc(
-                  bookmarkRepository: bookmarkRepositoryFactory(),
-                  postId: postId,
                 ),
-              ),
-              BlocProvider(
-                create: (_) => ReactionToggleBloc(
-                  reactionRepository: reactionRepositoryFactory(),
-                  postId: postId,
-                  initiallyReacted: false,
+                BlocProvider(
+                  create: (_) => ReactionToggleBloc(
+                    reactionRepository: reactionRepositoryFactory(),
+                    postId: postId,
+                    initiallyReacted: false,
+                  ),
                 ),
-              ),
-            ],
-            child: PostDetailScreen(postId: postId),
+              ],
+              child: PostDetailScreen(postId: postId),
+            ),
           );
         },
+      ),
+
+      // Creator Studio — private analytics; requires auth; outside shell
+      // (full-page push-navigation destination, NOT a shell tab).
+      GoRoute(
+        path: '/studio',
+        redirect: (context, state) {
+          final authState = authBloc.state;
+          if (authState is! AuthAuthenticated) return '/auth/login';
+          return null;
+        },
+        builder: (context, state) => BlocProvider(
+          create: (_) =>
+              StudioBloc(studioRepository: studioRepositoryFactory()),
+          child: const StudioScreen(),
+        ),
       ),
     ],
   );

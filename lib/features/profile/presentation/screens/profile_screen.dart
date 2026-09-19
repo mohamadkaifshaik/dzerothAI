@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../../../features/block/presentation/bloc/block_bloc.dart';
 import '../../../../features/follow/presentation/bloc/follow_bloc.dart';
+import '../../../../features/report/domain/repositories/report_repository.dart';
+import '../../../../features/report/presentation/widgets/report_sheet.dart';
 import '../../domain/entities/own_profile.dart';
 import '../../domain/entities/profile.dart';
 import '../bloc/profile_bloc.dart';
@@ -236,6 +238,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
 
                 const SizedBox(height: 16),
+
+                // Creator Studio — only shown to the authenticated owner.
+                // PRIVATE: This entry point must NOT appear on other users'
+                // profiles per CLAUDE.md §2.3.
+                if (isOwn) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => context.push('/studio'),
+                    icon: const Icon(Icons.bar_chart_outlined),
+                    label: const Text('Creator Studio'),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
                 const Divider(),
 
                 // Placeholder for future posts timeline
@@ -368,6 +383,14 @@ class _BlockMuteMenuButton extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
               ),
             ),
+            PopupMenuItem(
+              value: _ProfileAction.report,
+              child: ListTile(
+                leading: Icon(Icons.flag_outlined),
+                title: Text('Report user'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
           ],
         );
       },
@@ -380,11 +403,28 @@ class _BlockMuteMenuButton extends StatelessWidget {
         context.read<BlockBloc>().add(const MuteUserRequested());
       case _ProfileAction.block:
         context.read<BlockBloc>().add(const BlockUserRequested());
+      case _ProfileAction.report:
+        final repo = _tryReadReportRepo(context);
+        if (repo == null) return;
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) =>
+              ReportSheet.forUser(userId: targetUserId, reportRepository: repo),
+        );
+    }
+  }
+
+  ReportRepository? _tryReadReportRepo(BuildContext context) {
+    try {
+      return context.read<ReportRepository>();
+    } catch (_) {
+      return null;
     }
   }
 }
 
-enum _ProfileAction { mute, block }
+enum _ProfileAction { mute, block, report }
 
 // ---------------------------------------------------------------------------
 // Shared private widgets (unchanged from original)

@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../../../features/bookmark/presentation/bloc/bookmark_toggle_bloc.dart';
 import '../../../../features/reaction/presentation/bloc/reaction_toggle_bloc.dart';
+import '../../../../features/report/domain/repositories/report_repository.dart';
+import '../../../../features/report/presentation/widgets/report_sheet.dart';
 import '../../domain/entities/post.dart';
 
 /// Renders a single post in a list or feed.
@@ -78,17 +80,20 @@ class _PostActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthBloc>().state;
-    final isAuthenticated = authState is AuthAuthenticated;
 
-    if (!isAuthenticated) {
+    if (authState is! AuthAuthenticated) {
       // No actions visible for unauthenticated viewers.
       return const SizedBox.shrink();
     }
+
+    final currentUserId = authState.userId;
+    final isOwnPost = post.author.id == currentUserId;
 
     return Row(
       children: [
         _ReactionIcon(post: post),
         _BookmarkIcon(post: post),
+        if (!isOwnPost) _ReportMenuButton(post: post),
       ],
     );
   }
@@ -250,6 +255,68 @@ class _BookmarkIcon extends StatelessWidget {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Report menu button
+// ---------------------------------------------------------------------------
+
+/// Three-dot menu button that exposes a "Report" option for posts not owned by
+/// the current viewer.
+///
+/// Obtains a [ReportRepository] from the widget tree via [context.read].  If no
+/// [ReportRepository] is registered (e.g. unauthenticated contexts), the widget
+/// renders as [SizedBox.shrink] — it never crashes.
+///
+/// PUBLIC METRICS LOCKDOWN: no social-validation metrics are rendered here.
+class _ReportMenuButton extends StatelessWidget {
+  const _ReportMenuButton({required this.post});
+
+  final Post post;
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = _tryReadRepo(context);
+    if (repo == null) return const SizedBox.shrink();
+
+    return PopupMenuButton<_PostMenuAction>(
+      icon: const Icon(Icons.more_horiz),
+      iconSize: 20,
+      padding: EdgeInsets.zero,
+      tooltip: 'More options',
+      onSelected: (action) {
+        switch (action) {
+          case _PostMenuAction.report:
+            showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) =>
+                  ReportSheet.forPost(postId: post.id, reportRepository: repo),
+            );
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: _PostMenuAction.report,
+          child: ListTile(
+            leading: Icon(Icons.flag_outlined),
+            title: Text('Report'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
+  ReportRepository? _tryReadRepo(BuildContext context) {
+    try {
+      return context.read<ReportRepository>();
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+enum _PostMenuAction { report }
 
 // ---------------------------------------------------------------------------
 // Deleted post card

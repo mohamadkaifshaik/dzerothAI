@@ -17,6 +17,8 @@ import 'features/notification/data/repositories/notification_repository_impl.dar
 import 'features/notification/domain/repositories/notification_repository.dart';
 import 'features/reaction/data/repositories/reaction_repository_impl.dart';
 import 'features/reaction/domain/repositories/reaction_repository.dart';
+import 'features/report/data/repositories/report_repository_impl.dart';
+import 'features/report/domain/repositories/report_repository.dart';
 import 'features/search/data/repositories/search_repository_impl.dart';
 import 'features/feed/data/repositories/feed_repository_impl.dart';
 import 'features/follow/data/repositories/follow_repository_impl.dart';
@@ -25,6 +27,10 @@ import 'features/post/data/repositories/post_repository_impl.dart';
 import 'features/post/domain/repositories/post_repository.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
 import 'features/profile/domain/repositories/profile_repository.dart';
+import 'features/settings/data/repositories/settings_repository_impl.dart';
+import 'features/settings/domain/repositories/settings_repository.dart';
+import 'features/studio/data/repositories/studio_repository_impl.dart';
+import 'features/studio/domain/repositories/studio_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -123,6 +129,18 @@ void main() async {
   SearchRepositoryImpl searchRepositoryFactory() =>
       SearchRepositoryImpl(dio: dio);
 
+  // --- Settings repository factory ---
+  SettingsRepository settingsRepositoryFactory() =>
+      SettingsRepositoryImpl(dio: dio);
+
+  // --- Studio repository factory ---
+  // Auth is required. The shared authenticated Dio instance is used.
+  StudioRepository studioRepositoryFactory() => StudioRepositoryImpl(dio: dio);
+
+  // --- Report repository factory ---
+  // Auth is required — the shared authenticated Dio instance is used.
+  ReportRepository reportRepositoryFactory() => ReportRepositoryImpl(dio: dio);
+
   // --- Router ---
   final router = createAppRouter(
     authBloc: authBloc,
@@ -135,6 +153,9 @@ void main() async {
     reactionRepositoryFactory: reactionRepositoryFactory,
     notificationRepositoryFactory: notificationRepositoryFactory,
     searchRepositoryFactory: searchRepositoryFactory,
+    settingsRepositoryFactory: settingsRepositoryFactory,
+    studioRepositoryFactory: studioRepositoryFactory,
+    reportRepositoryFactory: reportRepositoryFactory,
   );
 
   runApp(DzerothApp(authBloc: authBloc, router: router));
