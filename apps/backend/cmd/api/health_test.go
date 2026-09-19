@@ -99,7 +99,7 @@ func TestReadyz_AllHealthy(t *testing.T) {
 	db := &mockDBPinger{err: nil}
 	rc := &mockRedisChecker{available: true}
 
-	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog)
+	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestReadyz_DBDown(t *testing.T) {
 	db := &mockDBPinger{err: errors.New("connection refused")}
 	rc := &mockRedisChecker{available: true}
 
-	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog)
+	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
@@ -155,7 +155,7 @@ func TestReadyz_RedisDown(t *testing.T) {
 	db := &mockDBPinger{err: nil}
 	rc := &mockRedisChecker{available: false}
 
-	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog)
+	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
@@ -186,7 +186,7 @@ func TestReadyz_BothDown(t *testing.T) {
 	db := &mockDBPinger{err: errors.New("timeout")}
 	rc := &mockRedisChecker{available: false}
 
-	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog)
+	handler := buildReadyzHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
@@ -216,7 +216,7 @@ func TestHealth_AllHealthy(t *testing.T) {
 	db := &mockDBChecker{pingErr: nil}
 	rc := &mockRedisChecker{available: true}
 
-	handler := buildHealthHandlerFromCheckers(db, rc, nopLog)
+	handler := buildHealthHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -251,7 +251,7 @@ func TestHealth_DBUnavailable(t *testing.T) {
 	db := &mockDBChecker{pingErr: errors.New("dial error")}
 	rc := &mockRedisChecker{available: true}
 
-	handler := buildHealthHandlerFromCheckers(db, rc, nopLog)
+	handler := buildHealthHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -286,7 +286,7 @@ func TestHealth_RedisUnavailable(t *testing.T) {
 	db := &mockDBChecker{pingErr: nil}
 	rc := &mockRedisChecker{available: false}
 
-	handler := buildHealthHandlerFromCheckers(db, rc, nopLog)
+	handler := buildHealthHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -317,7 +317,7 @@ func TestHealth_BothUnavailable(t *testing.T) {
 	db := &mockDBChecker{pingErr: errors.New("connection refused")}
 	rc := &mockRedisChecker{available: false}
 
-	handler := buildHealthHandlerFromCheckers(db, rc, nopLog)
+	handler := buildHealthHandlerFromCheckers(db, rc, nopLog, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -348,7 +348,7 @@ func TestHealth_NoSensitiveData(t *testing.T) {
 	db := &mockDBChecker{pingErr: nil}
 	rc := &mockRedisChecker{available: true}
 
-	handler := buildHealthHandlerFromCheckers(db, rc, nopLog)
+	handler := buildHealthHandlerFromCheckers(db, rc, nopLog, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)

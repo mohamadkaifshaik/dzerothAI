@@ -179,6 +179,9 @@ func run() error {
 	// Event counters for auth, rate-limit, and feed termination events.
 	// Registered on the same DefaultRegisterer; exposed via /metrics on the admin listener.
 	eventMetrics := platformMetrics.NewEvents(prometheus.DefaultRegisterer)
+	// Infrastructure gauges for DB pool and Redis availability.
+	// Updated by piggybacking on /health and /readyz handler calls — no extra goroutine.
+	infraMetrics := platformMetrics.NewInfraMetrics(prometheus.DefaultRegisterer)
 	authSvc.SetEvents(eventMetrics)
 	authHandler.SetEvents(eventMetrics)
 	feedSvc.SetEvents(eventMetrics)
@@ -217,7 +220,7 @@ func run() error {
 	// ── 9. Register public API routes ─────────────────────────────────────────
 	// /health remains on the public router for backward compatibility with existing
 	// callers (load balancers, etc.) that already use this path.
-	r.Get("/health", buildHealthHandler(pool, redisClient, log))
+	r.Get("/health", buildHealthHandler(pool, redisClient, log, infraMetrics))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		authHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
@@ -239,8 +242,8 @@ func run() error {
 	// It must NOT be exposed on the public API port or through the public load balancer.
 	adminRouter := chi.NewRouter()
 	adminRouter.Get("/livez", buildLivezHandler())
-	adminRouter.Get("/readyz", buildReadyzHandler(pool, redisClient, log))
-	adminRouter.Get("/health", buildHealthHandler(pool, redisClient, log))
+	adminRouter.Get("/readyz", buildReadyzHandler(pool, redisClient, log, infraMetrics))
+	adminRouter.Get("/health", buildHealthHandler(pool, redisClient, log, infraMetrics))
 	adminRouter.Handle("/metrics", promhttp.Handler())
 
 	// ── 11. Start HTTP servers ────────────────────────────────────────────────
@@ -424,13 +427,13 @@ type readyzResponse struct {
 // Readiness requires both PostgreSQL and Redis to be reachable. A 503 response
 // signals the load balancer to stop routing traffic to this instance until
 // dependencies recover.
-func buildReadyzHandler(pool *pgxpool.Pool, redisClient *rdb.Client, log *zap.Logger) http.HandlerFunc {
-	return buildReadyzHandlerFromCheckers(pool, &redisClientChecker{client: redisClient}, log)
+func buildReadyzHandler(pool *pgxpool.Pool, redisClient *rdb.Client, log *zap.Logger, infra *platformMetrics.InfraMetrics) http.HandlerFunc {
+	return buildReadyzHandlerFromCheckers(pool, &redisClientChecker{client: redisClient}, log, infra)
 }
 
 // buildReadyzHandlerFromCheckers is the testable form of buildReadyzHandler that accepts
 // interface types instead of concrete pgxpool and redis clients.
-func buildReadyzHandlerFromCheckers(db dbPinger, rc redisChecker, log *zap.Logger) http.HandlerFunc {
+func buildReadyzHandlerFromCheckers(db dbPinger, rc redisChecker, log *zap.Logger, infra *platformMetrics.InfraMetrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
@@ -441,8 +444,13 @@ func buildReadyzHandlerFromCheckers(db dbPinger, rc redisChecker, log *zap.Logge
 			log.Warn("readyz: database ping failed", zap.Error(err))
 		}
 
+		redisAvailable := rc.IsAvailable(ctx)
+		// Update the Redis availability gauge on every readyz call so that the gauge
+		// reflects the most recent health check result.
+		infra.SetRedisUp(redisAvailable)
+
 		redisStatus := "ok"
-		if !rc.IsAvailable(ctx) {
+		if !redisAvailable {
 			redisStatus = "unavailable"
 			log.Warn("readyz: redis unavailable")
 		}
@@ -500,14 +508,15 @@ func (p *pgxpoolChecker) PoolStats() dbPoolStats {
 // buildHealthHandler returns the GET /health handler.
 // If db is unreachable: status="degraded", HTTP 503.
 // If redis is unreachable: status="degraded", HTTP 503 (API continues serving).
-// When the DB ping succeeds, db_pool statistics are included (non-blocking read).
-func buildHealthHandler(pool *pgxpool.Pool, redisClient *rdb.Client, log *zap.Logger) http.HandlerFunc {
-	return buildHealthHandlerFromCheckers(&pgxpoolChecker{pool: pool}, &redisClientChecker{client: redisClient}, log)
+// When the DB ping succeeds, db_pool statistics are included (non-blocking read) and
+// the four DB pool gauges are updated. The Redis availability gauge is always updated.
+func buildHealthHandler(pool *pgxpool.Pool, redisClient *rdb.Client, log *zap.Logger, infra *platformMetrics.InfraMetrics) http.HandlerFunc {
+	return buildHealthHandlerFromCheckers(&pgxpoolChecker{pool: pool}, &redisClientChecker{client: redisClient}, log, infra)
 }
 
 // buildHealthHandlerFromCheckers is the testable form of buildHealthHandler that accepts
 // interface types instead of concrete pgxpool and redis clients.
-func buildHealthHandlerFromCheckers(db dbChecker, rc redisChecker, log *zap.Logger) http.HandlerFunc {
+func buildHealthHandlerFromCheckers(db dbChecker, rc redisChecker, log *zap.Logger, infra *platformMetrics.InfraMetrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
@@ -521,10 +530,18 @@ func buildHealthHandlerFromCheckers(db dbChecker, rc redisChecker, log *zap.Logg
 			// PoolStats() is a non-blocking in-memory read; safe to call in the hot path.
 			stats := db.PoolStats()
 			poolStats = &stats
+			// Update DB pool gauges. pgxpoolChecker.PoolStats() wraps pool.Stat() which
+			// is a non-blocking in-memory read — no I/O, safe in the hot path.
+			infra.UpdateDBPool(&dbPoolStatAdapter{stats: stats})
 		}
 
+		redisAvailable := rc.IsAvailable(ctx)
+		// Update the Redis availability gauge on every health call so the gauge reflects
+		// the most recent check result.
+		infra.SetRedisUp(redisAvailable)
+
 		redisStatus := "ok"
-		if !rc.IsAvailable(ctx) {
+		if !redisAvailable {
 			redisStatus = "unavailable"
 			log.Warn("health: redis unavailable")
 		}
@@ -548,6 +565,18 @@ func buildHealthHandlerFromCheckers(db dbChecker, rc redisChecker, log *zap.Logg
 		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
+
+// dbPoolStatAdapter adapts dbPoolStats (the internal health response struct) to
+// satisfy the platformMetrics.DBPoolStat interface. This avoids duplicating the
+// pool.Stat() call — poolStats is already populated from db.PoolStats() above.
+type dbPoolStatAdapter struct {
+	stats dbPoolStats
+}
+
+func (a *dbPoolStatAdapter) TotalConns() int32    { return a.stats.Total }
+func (a *dbPoolStatAdapter) AcquiredConns() int32 { return a.stats.InUse }
+func (a *dbPoolStatAdapter) IdleConns() int32     { return a.stats.Idle }
+func (a *dbPoolStatAdapter) MaxConns() int32      { return a.stats.Max }
 
 // corsAllowAll is a CORS middleware that permits all origins.
 // Used in local and test environments only.
