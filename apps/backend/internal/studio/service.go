@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 )
 
@@ -23,6 +24,7 @@ type Service struct {
 	repo   *Repository
 	rdb    *redis.Client // nullable — fail-open when nil
 	logger *zap.Logger
+	events *platformMetrics.Events
 }
 
 // NewService constructs a studio Service.
@@ -33,6 +35,12 @@ func NewService(repo *Repository, rdb *redis.Client, logger *zap.Logger) *Servic
 		rdb:    rdb,
 		logger: logger,
 	}
+}
+
+// SetEvents injects the Prometheus event counters into the Service.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (s *Service) SetEvents(e *platformMetrics.Events) {
+	s.events = e
 }
 
 // GetStudioAnalytics returns a finite paginated page of private analytics for
@@ -53,8 +61,10 @@ func (s *Service) GetStudioAnalytics(ctx context.Context, callerID uuid.UUID, cu
 		)
 	}
 	if limited {
+		s.events.RecordRateLimit(platformMetrics.RateLimitCategoryStudio, platformMetrics.RateLimitResultRejected)
 		return StudioPage{}, apierror.NewAPIError(apierror.CodeRateLimit, "Too many studio requests. Please try again later.")
 	}
+	s.events.RecordRateLimit(platformMetrics.RateLimitCategoryStudio, platformMetrics.RateLimitResultAllowed)
 
 	// Decode cursor if provided.
 	var cursor *post.FeedCursor

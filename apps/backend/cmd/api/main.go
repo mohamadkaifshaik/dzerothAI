@@ -176,6 +176,20 @@ func run() error {
 
 	// ── 7. Build HTTP metrics instruments ────────────────────────────────────
 	httpMetrics := platformMetrics.New(prometheus.DefaultRegisterer)
+	// Event counters for auth, rate-limit, and feed termination events.
+	// Registered on the same DefaultRegisterer; exposed via /metrics on the admin listener.
+	eventMetrics := platformMetrics.NewEvents(prometheus.DefaultRegisterer)
+	authSvc.SetEvents(eventMetrics)
+	authHandler.SetEvents(eventMetrics)
+	feedSvc.SetEvents(eventMetrics)
+	postHandler.SetEvents(eventMetrics)
+	followHandler.SetEvents(eventMetrics)
+	blockHandler.SetEvents(eventMetrics)
+	bookmarkHandler.SetEvents(eventMetrics)
+	searchHandler.SetEvents(eventMetrics)
+	reactionSvc.SetEvents(eventMetrics)
+	reportSvc.SetEvents(eventMetrics)
+	studioSvc.SetEvents(eventMetrics)
 
 	// ── 8. Build router ───────────────────────────────────────────────────────
 	r := chi.NewRouter()

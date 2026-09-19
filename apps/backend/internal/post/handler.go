@@ -15,6 +15,7 @@ import (
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/auth"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 // Handler exposes the post HTTP endpoints.
@@ -22,11 +23,18 @@ type Handler struct {
 	svc             *Service
 	log             *zap.Logger
 	reactionChecker ReactionChecker
+	events          *platformMetrics.Events
 }
 
 // NewHandler constructs a post Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetEvents injects the Prometheus event counters into the Handler.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (h *Handler) SetEvents(e *platformMetrics.Events) {
+	h.events = e
 }
 
 // SetReactionChecker injects a ReactionChecker dependency. Must be called after
@@ -50,7 +58,7 @@ func (h *Handler) SetReactionChecker(rc ReactionChecker) {
 // The write rate limit uses key rl:post:create:{user_id} and fails closed
 // (HTTP 503) when Redis is unavailable — this is an abuse-sensitive operation.
 func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecret []byte) {
-	postWriteRL := postRateLimitMiddleware(redisClient, h.log)
+	postWriteRL := postRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /posts — authenticated + rate-limited.
 	r.With(auth.JWTMiddleware(jwtSecret), postWriteRL).Post("/posts", h.createPost)
@@ -324,7 +332,8 @@ func runeCount(s string) int {
 //
 // This middleware must run AFTER JWTMiddleware (caller must be authenticated).
 // Fails closed (HTTP 503) when Redis is unavailable — this is an abuse-sensitive operation.
-func postRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(http.Handler) http.Handler {
+// events is optional (nil-safe).
+func postRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger, events *platformMetrics.Events) func(http.Handler) http.Handler {
 	const (
 		maxAttempts int64         = 30
 		window      time.Duration = 15 * time.Minute
@@ -386,12 +395,14 @@ func postRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(http
 			}
 
 			if count > maxAttempts {
+				events.RecordRateLimit(platformMetrics.RateLimitCategoryPostWrite, platformMetrics.RateLimitResultRejected)
 				w.Header().Set("Retry-After", "900")
 				apierror.Render(w, http.StatusTooManyRequests,
 					apierror.New(apierror.CodeRateLimit, "Too many posts. Please try again later."))
 				return
 			}
 
+			events.RecordRateLimit(platformMetrics.RateLimitCategoryPostWrite, platformMetrics.RateLimitResultAllowed)
 			next.ServeHTTP(w, r)
 		})
 	}

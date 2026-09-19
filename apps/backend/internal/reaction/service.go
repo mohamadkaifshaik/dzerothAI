@@ -11,6 +11,7 @@ import (
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 const (
@@ -26,6 +27,13 @@ type Service struct {
 	notifier notification.NotificationPublisher
 	rdb      *redis.Client // nullable — rate limiting fails open when nil
 	logger   *zap.Logger
+	events   *platformMetrics.Events
+}
+
+// SetEvents injects the Prometheus event counters into the Service.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (s *Service) SetEvents(e *platformMetrics.Events) {
+	s.events = e
 }
 
 // NewService constructs a reaction Service.
@@ -66,8 +74,10 @@ func (s *Service) React(ctx context.Context, callerID, postID uuid.UUID, postAut
 		)
 	}
 	if limited {
+		s.events.RecordRateLimit(platformMetrics.RateLimitCategoryReaction, platformMetrics.RateLimitResultRejected)
 		return apierror.NewAPIError(apierror.CodeRateLimit, "Too many reaction requests. Please try again later.")
 	}
+	s.events.RecordRateLimit(platformMetrics.RateLimitCategoryReaction, platformMetrics.RateLimitResultAllowed)
 
 	created, err := s.repo.React(ctx, callerID, postID)
 	if err != nil {
@@ -118,8 +128,10 @@ func (s *Service) Unreact(ctx context.Context, callerID, postID uuid.UUID) error
 		)
 	}
 	if limited {
+		s.events.RecordRateLimit(platformMetrics.RateLimitCategoryReaction, platformMetrics.RateLimitResultRejected)
 		return apierror.NewAPIError(apierror.CodeRateLimit, "Too many reaction requests. Please try again later.")
 	}
+	s.events.RecordRateLimit(platformMetrics.RateLimitCategoryReaction, platformMetrics.RateLimitResultAllowed)
 
 	if err := s.repo.Unreact(ctx, callerID, postID); err != nil {
 		s.logger.Error("reaction: unreact", zap.Error(err))

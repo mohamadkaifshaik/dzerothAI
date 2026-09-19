@@ -219,7 +219,8 @@ func TestFollowHandler_RateLimitNilRedis(t *testing.T) {
 
 	userID := uuid.New()
 	// Wire: JWTMiddleware → followRateLimitMiddleware(nil redis) → sentinel.
-	rl := followRateLimitMiddleware(nil, log)
+	// events is nil — counter instrumentation is a no-op in this test.
+	rl := followRateLimitMiddleware(nil, log, nil)
 	chain := auth.JWTMiddleware(testFollowJWTSecret)(rl(sentinel))
 
 	req := makeFollowAuthedRequest(t, http.MethodPost, "/users/"+uuid.New().String()+"/follow", userID)

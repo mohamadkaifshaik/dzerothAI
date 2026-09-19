@@ -11,17 +11,25 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 // Handler exposes the auth HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc    *Service
+	log    *zap.Logger
+	events *platformMetrics.Events
 }
 
 // NewHandler constructs an auth Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetEvents injects the Prometheus event counters into the Handler.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (h *Handler) SetEvents(e *platformMetrics.Events) {
+	h.events = e
 }
 
 // RegisterRoutes mounts all auth routes on the provided chi.Router.
@@ -31,13 +39,13 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 		Operation:   "login",
 		MaxAttempts: 10,
 		Window:      15 * time.Minute,
-	}, h.log)
+	}, h.log, h.events)
 
 	registerRL := RateLimitMiddleware(redisClient, RateLimitConfig{
 		Operation:   "register",
 		MaxAttempts: 5,
 		Window:      time.Hour,
-	}, h.log)
+	}, h.log, h.events)
 
 	r.With(registerRL).Post("/auth/register", h.register)
 	r.With(loginRL).Post("/auth/login", h.login)
@@ -155,6 +163,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.events.RecordAuthEvent(platformMetrics.AuthEventLogout)
 	w.WriteHeader(http.StatusNoContent)
 }
 

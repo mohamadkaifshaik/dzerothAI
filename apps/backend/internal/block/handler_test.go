@@ -128,7 +128,8 @@ func TestBlockHandler_RateLimitNilRedis(t *testing.T) {
 	}
 
 	// nil Redis — rate limit middleware must fail closed.
-	rl := blockRateLimitMiddleware(nil, log)
+	// events is nil — counter instrumentation is a no-op in this test.
+	rl := blockRateLimitMiddleware(nil, log, nil)
 
 	handlerCalled := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

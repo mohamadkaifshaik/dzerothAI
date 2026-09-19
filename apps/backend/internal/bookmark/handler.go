@@ -14,17 +14,25 @@ import (
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/auth"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 // Handler exposes the bookmark HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc    *Service
+	log    *zap.Logger
+	events *platformMetrics.Events
 }
 
 // NewHandler constructs a bookmark Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetEvents injects the Prometheus event counters into the Handler.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (h *Handler) SetEvents(e *platformMetrics.Events) {
+	h.events = e
 }
 
 // RegisterRoutes mounts all bookmark routes on the provided chi.Router.
@@ -38,7 +46,7 @@ func NewHandler(svc *Service, log *zap.Logger) *Handler {
 // The POST rate limit uses key rl:bookmark:{user_id} and fails closed (HTTP 503)
 // when Redis is unavailable — this is an abuse-sensitive operation.
 func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecret []byte) {
-	bookmarkRL := bookmarkRateLimitMiddleware(redisClient, h.log)
+	bookmarkRL := bookmarkRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /posts/{postID}/bookmark — authenticated + rate-limited.
 	r.With(auth.JWTMiddleware(jwtSecret), bookmarkRL).Post("/posts/{postID}/bookmark", h.addBookmark)
@@ -172,7 +180,8 @@ func writeJSON(w http.ResponseWriter, statusCode int, v any) {
 //
 // This middleware must run AFTER JWTMiddleware (caller must be authenticated).
 // Fails closed (HTTP 503) when Redis is unavailable — this is an abuse-sensitive operation.
-func bookmarkRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(http.Handler) http.Handler {
+// events is optional (nil-safe).
+func bookmarkRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger, events *platformMetrics.Events) func(http.Handler) http.Handler {
 	const (
 		maxAttempts int64         = 120
 		window      time.Duration = 15 * time.Minute
@@ -234,12 +243,14 @@ func bookmarkRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(
 			}
 
 			if count > maxAttempts {
+				events.RecordRateLimit(platformMetrics.RateLimitCategoryBookmark, platformMetrics.RateLimitResultRejected)
 				w.Header().Set("Retry-After", "900")
 				apierror.Render(w, http.StatusTooManyRequests,
 					apierror.New(apierror.CodeRateLimit, "Too many bookmark requests. Please try again later."))
 				return
 			}
 
+			events.RecordRateLimit(platformMetrics.RateLimitCategoryBookmark, platformMetrics.RateLimitResultAllowed)
 			next.ServeHTTP(w, r)
 		})
 	}

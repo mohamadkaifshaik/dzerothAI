@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 // contextKey is an unexported type for request-context keys to avoid collisions.
@@ -95,11 +96,16 @@ type RateLimitConfig struct {
 //
 // When Redis is unavailable the middleware FAILS CLOSED by returning HTTP 503.
 // This is a security requirement per ADR 0005 and the approved Redis failure policy.
-func RateLimitMiddleware(redisClient *rdb.Client, cfg RateLimitConfig, log *zap.Logger) func(http.Handler) http.Handler {
+//
+// events is optional: pass nil to disable counter instrumentation.
+func RateLimitMiddleware(redisClient *rdb.Client, cfg RateLimitConfig, log *zap.Logger, events *platformMetrics.Events) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := realIP(r)
 			key := fmt.Sprintf("rl:auth:%s:%s", cfg.Operation, ip)
+
+			// Resolve the metric category from the operation name.
+			category := rateLimitCategory(cfg.Operation)
 
 			// Fail closed: if Redis is unreachable, block the request.
 			if redisClient == nil {
@@ -169,14 +175,30 @@ func RateLimitMiddleware(redisClient *rdb.Client, cfg RateLimitConfig, log *zap.
 			}
 
 			if count > cfg.MaxAttempts {
+				events.RecordRateLimit(category, platformMetrics.RateLimitResultRejected)
 				w.Header().Set("Retry-After", strconv.FormatInt(int64(cfg.Window.Seconds()), 10))
 				apierror.Render(w, http.StatusTooManyRequests,
 					apierror.New(apierror.CodeRateLimit, "Too many requests. Please try again later."))
 				return
 			}
 
+			events.RecordRateLimit(category, platformMetrics.RateLimitResultAllowed)
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// rateLimitCategory maps an auth RateLimitConfig.Operation string to a fixed
+// metric label value. Only auth operations are handled here; other packages
+// use their own category strings directly.
+func rateLimitCategory(operation string) string {
+	switch operation {
+	case "login":
+		return platformMetrics.RateLimitCategoryAuthLogin
+	case "register":
+		return platformMetrics.RateLimitCategoryAuthRegister
+	default:
+		return "auth_" + operation
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 )
 
@@ -40,6 +41,7 @@ type Service struct {
 	blockProvider  BlockProvider
 	followProvider FollowProvider
 	log            *zap.Logger
+	events         *platformMetrics.Events
 }
 
 // NewService constructs a feed Service.
@@ -50,6 +52,12 @@ func NewService(repo *Repository, bp BlockProvider, fp FollowProvider, log *zap.
 		followProvider: fp,
 		log:            log,
 	}
+}
+
+// SetEvents injects the Prometheus event counters into the Service.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (s *Service) SetEvents(e *platformMetrics.Events) {
+	s.events = e
 }
 
 // GetHomeFeed returns the home timeline PostPage for the authenticated caller.
@@ -110,6 +118,10 @@ func (s *Service) GetHomeFeed(ctx context.Context, callerID uuid.UUID, cursorStr
 	// Guarantee a non-nil slice in the JSON response for empty feeds.
 	if dtos == nil {
 		dtos = []post.PostDTO{}
+	}
+
+	if terminated {
+		s.events.RecordFeedTermination(platformMetrics.FeedTypeHome)
 	}
 
 	return post.PostPage{Items: dtos, NextCursor: nextCursor, Terminated: terminated}, nil

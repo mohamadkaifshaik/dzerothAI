@@ -341,7 +341,8 @@ func TestRateLimitMiddleware_NilRedisClient_FailsClosed503(t *testing.T) {
 
 	sentinel := &handlerSentinel{}
 	// Passing nil as the Redis client simulates Redis being unavailable.
-	mw := RateLimitMiddleware(nil, cfg, log)(sentinel)
+	// events is nil — counter instrumentation is a no-op in this test.
+	mw := RateLimitMiddleware(nil, cfg, log, nil)(sentinel)
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	rec := httptest.NewRecorder()

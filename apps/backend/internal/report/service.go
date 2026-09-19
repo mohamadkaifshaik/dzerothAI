@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 const (
@@ -37,6 +38,13 @@ type Service struct {
 	userChecker UserChecker
 	rdb         *redis.Client // MUST NOT be nil — rate limiting is fail-closed
 	logger      *zap.Logger
+	events      *platformMetrics.Events
+}
+
+// SetEvents injects the Prometheus event counters into the Service.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (s *Service) SetEvents(e *platformMetrics.Events) {
+	s.events = e
 }
 
 // NewService constructs a report Service.
@@ -201,9 +209,11 @@ func (s *Service) enforceRateLimit(ctx context.Context, reporterID uuid.UUID) er
 	}
 
 	if count > reportRateMax {
+		s.events.RecordRateLimit(platformMetrics.RateLimitCategoryReport, platformMetrics.RateLimitResultRejected)
 		return apierror.NewAPIError(apierror.CodeRateLimit, "Too many report requests. Please try again later.")
 	}
 
+	s.events.RecordRateLimit(platformMetrics.RateLimitCategoryReport, platformMetrics.RateLimitResultAllowed)
 	return nil
 }
 

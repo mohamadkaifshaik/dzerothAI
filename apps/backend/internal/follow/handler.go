@@ -14,17 +14,25 @@ import (
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/auth"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 // Handler exposes the follow HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc    *Service
+	log    *zap.Logger
+	events *platformMetrics.Events
 }
 
 // NewHandler constructs a follow Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetEvents injects the Prometheus event counters into the Handler.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (h *Handler) SetEvents(e *platformMetrics.Events) {
+	h.events = e
 }
 
 // RegisterRoutes mounts all follow routes on the provided chi.Router.
@@ -39,7 +47,7 @@ func NewHandler(svc *Service, log *zap.Logger) *Handler {
 // The POST rate limit uses key rl:follow:{user_id} and fails closed (HTTP 503)
 // when Redis is unavailable — this is an abuse-sensitive operation.
 func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecret []byte) {
-	followWriteRL := followRateLimitMiddleware(redisClient, h.log)
+	followWriteRL := followRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /users/{userID}/follow — authenticated + rate-limited.
 	r.With(auth.JWTMiddleware(jwtSecret), followWriteRL).Post("/users/{userID}/follow", h.follow)
@@ -205,7 +213,8 @@ func writeJSON(w http.ResponseWriter, statusCode int, v any) {
 //
 // This middleware must run AFTER JWTMiddleware (caller must be authenticated).
 // Fails closed (HTTP 503) when Redis is unavailable — this is an abuse-sensitive operation.
-func followRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(http.Handler) http.Handler {
+// events is optional (nil-safe).
+func followRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger, events *platformMetrics.Events) func(http.Handler) http.Handler {
 	const (
 		maxAttempts int64         = 60
 		window      time.Duration = 15 * time.Minute
@@ -267,12 +276,14 @@ func followRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(ht
 			}
 
 			if count > maxAttempts {
+				events.RecordRateLimit(platformMetrics.RateLimitCategoryFollow, platformMetrics.RateLimitResultRejected)
 				w.Header().Set("Retry-After", "900")
 				apierror.Render(w, http.StatusTooManyRequests,
 					apierror.New(apierror.CodeRateLimit, "Too many follow requests. Please try again later."))
 				return
 			}
 
+			events.RecordRateLimit(platformMetrics.RateLimitCategoryFollow, platformMetrics.RateLimitResultAllowed)
 			next.ServeHTTP(w, r)
 		})
 	}

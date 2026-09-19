@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 const (
@@ -50,6 +52,14 @@ type Service struct {
 	pool      *pgxpool.Pool
 	jwtSecret []byte
 	log       *zap.Logger
+	events    *platformMetrics.Events
+}
+
+// SetEvents injects the Prometheus event counters into the Service.
+// It must be called before the service handles any requests.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (s *Service) SetEvents(e *platformMetrics.Events) {
+	s.events = e
 }
 
 // NewService constructs an auth Service.
@@ -96,6 +106,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*TokenPair
 // creates a new session, and returns a TokenPair.
 func (s *Service) Login(ctx context.Context, input LoginInput) (*TokenPair, error) {
 	if strings.TrimSpace(input.Email) == "" || strings.TrimSpace(input.Password) == "" {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventLoginFailure)
 		return nil, &ValidationError{Message: "email and password are required"}
 	}
 
@@ -103,43 +114,55 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (*TokenPair, erro
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			// Return a generic error to avoid leaking whether the email exists.
+			s.events.RecordAuthEvent(platformMetrics.AuthEventLoginFailure)
 			return nil, &ValidationError{Message: "invalid credentials"}
 		}
 		return nil, fmt.Errorf("auth: login lookup: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventLoginFailure)
 		return nil, &ValidationError{Message: "invalid credentials"}
 	}
 
 	if user.IsSuspended {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventLoginFailure)
 		return nil, &SuspendedError{}
 	}
 
-	return s.issueTokenPair(ctx, user.ID, nil, nil)
+	pair, err := s.issueTokenPair(ctx, user.ID, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.events.RecordAuthEvent(platformMetrics.AuthEventLoginSuccess)
+	return pair, nil
 }
 
 // Refresh validates the raw refresh token, looks up its session, checks expiry and
 // suspension, then atomically rotates the session to a new token pair.
 func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*TokenPair, error) {
 	if strings.TrimSpace(rawRefreshToken) == "" {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventTokenRefreshFailure)
 		return nil, &ValidationError{Message: "refresh_token is required"}
 	}
 
 	tokenHash, err := HashRefreshToken(rawRefreshToken)
 	if err != nil {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventTokenRefreshFailure)
 		return nil, &ValidationError{Message: "invalid refresh token format"}
 	}
 
 	session, err := GetSessionByHash(ctx, s.pool, tokenHash)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			s.events.RecordAuthEvent(platformMetrics.AuthEventTokenRefreshFailure)
 			return nil, &UnauthorizedError{Message: "refresh token not found or already rotated"}
 		}
 		return nil, fmt.Errorf("auth: refresh lookup: %w", err)
 	}
 
 	if time.Now().UTC().After(session.ExpiresAt) {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventTokenRefreshFailure)
 		return nil, &UnauthorizedError{Message: "refresh token expired"}
 	}
 
@@ -149,6 +172,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*TokenPa
 		return nil, fmt.Errorf("auth: refresh suspension check: %w", err)
 	}
 	if userSuspended {
+		s.events.RecordAuthEvent(platformMetrics.AuthEventTokenRefreshFailure)
 		return nil, &SuspendedError{}
 	}
 
@@ -167,6 +191,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*TokenPa
 		return nil, fmt.Errorf("auth: generate access token: %w", err)
 	}
 
+	s.events.RecordAuthEvent(platformMetrics.AuthEventTokenRefreshSuccess)
 	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: newRaw,

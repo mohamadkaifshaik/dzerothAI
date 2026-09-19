@@ -234,7 +234,8 @@ func TestBookmarkHandler_RateLimitNilRedis(t *testing.T) {
 	})
 
 	userID := uuid.New()
-	rl := bookmarkRateLimitMiddleware(nil, log)
+	// events is nil — counter instrumentation is a no-op in this test.
+	rl := bookmarkRateLimitMiddleware(nil, log, nil)
 	chain := auth.JWTMiddleware(testJWTSecret)(rl(sentinel))
 
 	req := makeAuthedRequest(t, http.MethodPost, "/posts/"+uuid.New().String()+"/bookmark", userID)

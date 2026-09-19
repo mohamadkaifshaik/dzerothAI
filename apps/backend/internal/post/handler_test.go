@@ -353,7 +353,8 @@ func TestCreatePostHandler_RateLimitNilRedis(t *testing.T) {
 
 	userID := uuid.New()
 	// Wire: JWTMiddleware → postRateLimitMiddleware(nil redis) → sentinel.
-	rl := postRateLimitMiddleware(nil, log)
+	// events is nil — counter instrumentation is a no-op in this test.
+	rl := postRateLimitMiddleware(nil, log, nil)
 	chain := auth.JWTMiddleware(testJWTSecret)(rl(sentinel))
 
 	req := makeAuthedRequest(t, http.MethodPost, "/posts", nil, userID)

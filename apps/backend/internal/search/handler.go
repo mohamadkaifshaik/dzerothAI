@@ -16,17 +16,25 @@ import (
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/auth"
+	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
 // Handler exposes the search HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc    *Service
+	log    *zap.Logger
+	events *platformMetrics.Events
 }
 
 // NewHandler constructs a search Handler.
 func NewHandler(svc *Service, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// SetEvents injects the Prometheus event counters into the Handler.
+// Passing nil disables counter instrumentation (no-op, safe for unit tests).
+func (h *Handler) SetEvents(e *platformMetrics.Events) {
+	h.events = e
 }
 
 // RegisterRoutes mounts all search routes on the provided chi.Router.
@@ -44,7 +52,7 @@ func NewHandler(svc *Service, log *zap.Logger) *Handler {
 // Bearer token and block filtering will be applied if it parses correctly.
 // Unauthenticated callers receive results without block filtering.
 func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecret []byte) {
-	searchRL := searchRateLimitMiddleware(redisClient, h.log)
+	searchRL := searchRateLimitMiddleware(redisClient, h.log, h.events)
 
 	r.With(searchRL).Get("/search/posts", h.searchPosts(jwtSecret))
 	r.With(searchRL).Get("/search/users", h.searchUsers(jwtSecret))
@@ -169,7 +177,8 @@ func writeJSON(w http.ResponseWriter, statusCode int, v any) {
 //
 // Fail-open: if Redis is unavailable (nil client or Redis error), the request is
 // allowed through. This is approved behavior for non-security-sensitive operations.
-func searchRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(http.Handler) http.Handler {
+// events is optional (nil-safe).
+func searchRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger, events *platformMetrics.Events) func(http.Handler) http.Handler {
 	const (
 		maxAttempts int64         = 30
 		window      time.Duration = 15 * time.Minute
@@ -225,12 +234,14 @@ func searchRateLimitMiddleware(redisClient *rdb.Client, log *zap.Logger) func(ht
 			}
 
 			if count > maxAttempts {
+				events.RecordRateLimit(platformMetrics.RateLimitCategorySearch, platformMetrics.RateLimitResultRejected)
 				w.Header().Set("Retry-After", strconv.FormatInt(int64(window.Seconds()), 10))
 				apierror.Render(w, http.StatusTooManyRequests,
 					apierror.New(apierror.CodeRateLimit, "Too many search requests. Please try again later."))
 				return
 			}
 
+			events.RecordRateLimit(platformMetrics.RateLimitCategorySearch, platformMetrics.RateLimitResultAllowed)
 			next.ServeHTTP(w, r)
 		})
 	}
