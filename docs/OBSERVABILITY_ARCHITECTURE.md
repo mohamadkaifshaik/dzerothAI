@@ -518,15 +518,25 @@ This requires instrumentation at the pgxpool level (query tracer) or at individu
 
 ### 7.6 Redis Metrics
 
-**`redis_errors_total`** — Counter
+**`dzeroth_redis_errors_total`** — Counter **[IMPLEMENTED in Phase 7C-6]**
 
-| Label | Values |
-|---|---|
-| `command` | `set_nx`, `incr`, `expire`, `ping`, `zadd`, `zrange` |
+Zero labels (single series, zero cardinality).
+
+Counts genuine Redis infrastructure errors: network failures, connection refused, command execution errors.
+
+Does NOT count:
+- `redis.Nil` returns (normal cache misses — no such pattern currently exists in the codebase)
+- Health check unavailability (already tracked by `dzeroth_redis_up`)
+
+Implementation: `InfraMetrics.RecordRedisError()` in `apps/backend/internal/platform/metrics/infra.go`.
+
+Callers must invoke `RecordRedisError()` at genuine infrastructure failure sites, not at every Redis call.
 
 **`dzeroth_redis_up`** — Gauge **[IMPLEMENTED in Phase 7C-4]**
 
 Value: `1.0` when `platformRedis.IsAvailable` returns true; `0.0` otherwise. Updated during `/health` and `/readyz` calls (piggybacked — no separate goroutine).
+
+Relationship to `dzeroth_redis_errors_total`: the gauge reflects the current availability state as observed by health checks. The counter counts discrete error events at rate-limit call sites. They are complementary, not redundant: the gauge answers "is Redis up right now?" while the counter answers "how many Redis errors have occurred over the lifetime of this process?".
 
 ### 7.7 Feed Metrics
 
@@ -642,11 +652,23 @@ No state is tracked between calls. Every call is a fresh Ping.
 
 **Health check:** When `/health` or `/readyz` finds Redis unavailable, log `health: redis unavailable` at WARN. Currently no log is emitted for Redis unavailability in the health handler (only the DB ping failure is logged).
 
-**State change detection:** Track last-known Redis availability state in a package-level atomic bool within `platformRedis`. On first failure: log WARN `redis: became unavailable`. On first recovery: log INFO `redis: became available`. This avoids log noise from repeated health checks finding Redis consistently in the same state.
+**State change detection [IMPLEMENTED in Phase 7C-6]:** `InfraMetrics.SetRedisUp()` now tracks the last-known Redis availability state using `sync/atomic.Bool`. Transition semantics:
 
-This state-change tracking is a Phase 7C-5 item and requires a small addition to `platform/redis`.
+- First call to `SetRedisUp`: state is recorded; no log is emitted (no previous state to compare against).
+- Subsequent call where state differs from previous: a structured log is emitted at the appropriate level.
+- Subsequent call with the same state: no log (prevents noise from repeated health checks).
 
-**Redis error counter:** Increment `redis_errors_total{command=...}` at each Redis error site in rate-limit code. These currently only log at WARN/ERROR; the counter makes them alertable.
+Log levels for transitions:
+- available → unavailable: `zap.Warn("redis availability changed", ...)` — indicates Redis became unreachable.
+- unavailable → available: `zap.Info("redis availability changed", ...)` — indicates Redis recovered.
+
+Fields emitted: `previous_available` (bool), `available` (bool), `component` (string, always "redis").
+
+Fields deliberately NOT emitted: connection string, Redis address, key names, passwords, or any credentials.
+
+Thread safety: `atomic.Bool` (Go 1.19+) is used for both state fields. No mutex is required for the two independent atomic operations (load then store); the logging may observe a single additional transition during concurrent updates, which is safe and produces at most one extra log line.
+
+**Redis error counter [IMPLEMENTED in Phase 7C-6]:** `dzeroth_redis_errors_total` counter registered in `InfraMetrics`. See Section 7.6 for semantics. Call site wiring to rate-limit middleware is deferred to a follow-up pass to keep Phase 7C-6 minimal and avoid signature changes across multiple service/handler packages.
 
 ---
 
@@ -847,14 +869,24 @@ Files: relevant handler and service files (targeted edits only)
 - Auth WARN logs for malformed/forged JWTs — add to `auth/middleware.go` `JWTMiddleware`.
 - Rate-limit exceeded INFO log — add at the `count > maxAttempts` branch in each rate-limit implementation.
 
-### Phase 7C-6: DB Pool and Redis Metrics
+### Phase 7C-6: Redis Error Counter and State-Change Observability
 
-Files: `apps/backend/cmd/api/main.go`, `apps/backend/internal/platform/redis/redis.go`
+**IMPLEMENTED** — `apps/backend/internal/platform/metrics/infra.go`, `apps/backend/internal/platform/metrics/infra_test.go`, `apps/backend/internal/platform/metrics/redis_state_test.go`, `apps/backend/cmd/api/main.go`
 
-- Add `db_pool_connections` gauge populated from `pool.Stat()` in a periodic goroutine (5-minute interval).
-- Add `redis_available` gauge updated in health check and `/readyz` handler.
-- Add `redis_errors_total` counter at Redis error sites in rate-limit code.
-- Add Redis state-change detection (first failure / first recovery WARN logs) to `platformRedis`.
+- `dzeroth_redis_errors_total` Prometheus counter added to `InfraMetrics` (zero labels, single series).
+- `RecordRedisError()` method added to `InfraMetrics`; nil-safe.
+- `NewInfraMetrics` signature extended to accept `*zap.Logger` (nil-safe: falls back to `zap.NewNop()`).
+- `SetRedisUp()` extended with state-change logging using `atomic.Bool` fields for thread safety.
+  - First call: no log (no previous state).
+  - available→unavailable transition: WARN log with `previous_available`, `available`, `component` fields.
+  - unavailable→available transition: INFO log with same fields.
+  - Same-state repeated calls: no log.
+- 10 new tests: 3 counter tests in `infra_test.go`, 7 state-change tests in `redis_state_test.go`.
+- `main.go` updated to pass the zap logger to `NewInfraMetrics`.
+
+Not yet implemented in Phase 7C-6:
+- `RecordRedisError()` call-site wiring to rate-limit middleware. Deferred to avoid changing signatures across multiple service/handler packages. The counter is registered and incrementable; wiring is a targeted follow-up.
+- Periodic DB pool goroutine (deferred — no background goroutine constraint).
 
 ### Phase 7C-7: Request ID Propagation and Build Identity
 

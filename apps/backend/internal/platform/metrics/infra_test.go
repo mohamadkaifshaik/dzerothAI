@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
@@ -23,12 +24,13 @@ func (f *fakePoolStat) AcquiredConns() int32 { return f.acquired }
 func (f *fakePoolStat) IdleConns() int32     { return f.idle }
 func (f *fakePoolStat) MaxConns() int32      { return f.max }
 
-// newTestInfra creates an InfraMetrics instance backed by a fresh isolated registry.
-// Using a fresh registry per test prevents cross-test pollution of gauge values.
+// newTestInfra creates an InfraMetrics instance backed by a fresh isolated registry
+// and a no-op logger. Using a fresh registry per test prevents cross-test pollution
+// of gauge and counter values.
 func newTestInfra(t *testing.T) (*metrics.InfraMetrics, *prometheus.Registry) {
 	t.Helper()
 	reg := prometheus.NewRegistry()
-	im := metrics.NewInfraMetrics(reg)
+	im := metrics.NewInfraMetrics(reg, zap.NewNop())
 	return im, reg
 }
 
@@ -52,6 +54,28 @@ func gatherGauge(t *testing.T, reg *prometheus.Registry, name string) float64 {
 		return metrics[0].GetGauge().GetValue()
 	}
 	return -999.0
+}
+
+// gatherNoLabelCounter gathers all metrics from reg and returns the current value
+// of the counter with the given metric family name that has no label dimensions.
+// Returns -1.0 when the metric family is not found.
+func gatherNoLabelCounter(t *testing.T, reg *prometheus.Registry, name string) float64 {
+	t.Helper()
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range families {
+		if mf.GetName() != name {
+			continue
+		}
+		ms := mf.GetMetric()
+		if len(ms) == 0 {
+			t.Fatalf("counter %s: found family but no metric series", name)
+		}
+		return ms[0].GetCounter().GetValue()
+	}
+	return -1.0
 }
 
 // --- DB pool gauge tests ---
@@ -250,4 +274,42 @@ func TestInfraMetrics_NoLabels(t *testing.T) {
 			t.Errorf("gauge %s not found in registry after update", name)
 		}
 	}
+}
+
+// --- Redis error counter tests ---
+
+// TestInfraMetrics_RedisError_Increments verifies that a single RecordRedisError()
+// call increments dzeroth_redis_errors_total from 0 to 1.
+func TestInfraMetrics_RedisError_Increments(t *testing.T) {
+	im, reg := newTestInfra(t)
+
+	im.RecordRedisError()
+
+	got := gatherNoLabelCounter(t, reg, "dzeroth_redis_errors_total")
+	if got != 1 {
+		t.Errorf("dzeroth_redis_errors_total after one increment: want 1, got %v", got)
+	}
+}
+
+// TestInfraMetrics_RedisError_MultipleIncrements verifies that three RecordRedisError()
+// calls accumulate correctly to a counter value of 3.
+func TestInfraMetrics_RedisError_MultipleIncrements(t *testing.T) {
+	im, reg := newTestInfra(t)
+
+	im.RecordRedisError()
+	im.RecordRedisError()
+	im.RecordRedisError()
+
+	got := gatherNoLabelCounter(t, reg, "dzeroth_redis_errors_total")
+	if got != 3 {
+		t.Errorf("dzeroth_redis_errors_total after three increments: want 3, got %v", got)
+	}
+}
+
+// TestInfraMetrics_NilSafe_RecordRedisError verifies that calling RecordRedisError
+// on a nil *InfraMetrics is a no-op and does not panic.
+func TestInfraMetrics_NilSafe_RecordRedisError(t *testing.T) {
+	var im *metrics.InfraMetrics
+	// Must not panic.
+	im.RecordRedisError()
 }

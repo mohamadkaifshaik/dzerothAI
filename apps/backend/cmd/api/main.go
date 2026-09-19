@@ -179,9 +179,10 @@ func run() error {
 	// Event counters for auth, rate-limit, and feed termination events.
 	// Registered on the same DefaultRegisterer; exposed via /metrics on the admin listener.
 	eventMetrics := platformMetrics.NewEvents(prometheus.DefaultRegisterer)
-	// Infrastructure gauges for DB pool and Redis availability.
-	// Updated by piggybacking on /health and /readyz handler calls — no extra goroutine.
-	infraMetrics := platformMetrics.NewInfraMetrics(prometheus.DefaultRegisterer)
+	// Infrastructure gauges for DB pool and Redis availability, plus the Redis error
+	// counter and state-change logger. Updated by piggybacking on /health and /readyz
+	// handler calls — no extra goroutine.
+	infraMetrics := platformMetrics.NewInfraMetrics(prometheus.DefaultRegisterer, log)
 	authSvc.SetEvents(eventMetrics)
 	authHandler.SetEvents(eventMetrics)
 	feedSvc.SetEvents(eventMetrics)
