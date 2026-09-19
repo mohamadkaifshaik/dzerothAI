@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../reaction/presentation/bloc/reaction_toggle_bloc.dart';
 import '../bloc/post_detail_bloc.dart';
 import '../bloc/post_feed_bloc.dart';
 import '../widgets/post_thread_view.dart';
@@ -21,7 +22,17 @@ class PostDetailScreen extends StatelessWidget {
       listeners: [
         BlocListener<PostDetailBloc, PostDetailState>(
           listener: (context, state) {
-            // No side-effects needed here; UI is rebuilt by BlocBuilder.
+            // When the post loads successfully, seed ReactionToggleBloc with
+            // the server-authoritative viewer reaction state so the toggle
+            // reflects whether the authenticated user has already reacted.
+            if (state is PostDetailLoaded) {
+              final viewerHasReacted = state.post.viewerHasReacted;
+              if (viewerHasReacted != null) {
+                context.read<ReactionToggleBloc>().add(
+                  ReactionStateHydrated(reacted: viewerHasReacted),
+                );
+              }
+            }
           },
         ),
       ],

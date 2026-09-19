@@ -157,5 +157,112 @@ void main() {
       // Only verify first toggle completes correctly.
       expect: () => [const ReactionLoading(), ReactionOn(postId: _postId)],
     );
+
+    // -----------------------------------------------------------------------
+    // ReactionStateHydrated — viewer_has_reacted = true
+    // -----------------------------------------------------------------------
+
+    blocTest<ReactionToggleBloc, ReactionToggleState>(
+      'ReactionToggleBloc_Hydrates_ReactionOn_WhenViewerHasReacted: '
+      'emits ReactionOn when ReactionStateHydrated(reacted: true) is added',
+      build: () => _makeBloc(mockRepo, initiallyReacted: false),
+      act: (bloc) => bloc.add(const ReactionStateHydrated(reacted: true)),
+      expect: () => [ReactionOn(postId: _postId)],
+      verify: (_) {
+        verifyNever(() => mockRepo.react(_postId));
+        verifyNever(() => mockRepo.unreact(_postId));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // ReactionStateHydrated — viewer_has_reacted = false
+    // -----------------------------------------------------------------------
+
+    blocTest<ReactionToggleBloc, ReactionToggleState>(
+      'ReactionToggleBloc_Hydrates_ReactionOff_WhenViewerHasNotReacted: '
+      'emits ReactionOff when ReactionStateHydrated(reacted: false) is added',
+      build: () => _makeBloc(mockRepo, initiallyReacted: true),
+      act: (bloc) => bloc.add(const ReactionStateHydrated(reacted: false)),
+      expect: () => [ReactionOff(postId: _postId)],
+      verify: (_) {
+        verifyNever(() => mockRepo.react(_postId));
+        verifyNever(() => mockRepo.unreact(_postId));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // ReactionStateHydrated — viewer_has_reacted = null (absent/unauthenticated)
+    // No event is dispatched; bloc stays in its initial ReactionOff state.
+    // -----------------------------------------------------------------------
+
+    test(
+      'ReactionToggleBloc_StaysOff_WhenViewerHasReactedIsNull: '
+      'no state change and no API call when viewerHasReacted is null',
+      () async {
+        final bloc = _makeBloc(mockRepo, initiallyReacted: false);
+        // Simulate the screen guard: null means no hydration event is added.
+        // The bloc state must remain ReactionOff.
+        expect(bloc.state, ReactionOff(postId: _postId));
+        verifyNever(() => mockRepo.react(_postId));
+        verifyNever(() => mockRepo.unreact(_postId));
+        await bloc.close();
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // After hydration to ReactionOn, toggle → ReactionOff (calls unreact)
+    // -----------------------------------------------------------------------
+
+    blocTest<ReactionToggleBloc, ReactionToggleState>(
+      'ReactionToggleBloc_ToggleAfterHydrationOn_CallsUnreact: '
+      'after hydrating to ReactionOn, toggle emits [ReactionLoading, ReactionOff]',
+      build: () {
+        when(() => mockRepo.unreact(_postId))
+            .thenAnswer((_) async => const Success(null));
+        return _makeBloc(mockRepo, initiallyReacted: false);
+      },
+      act: (bloc) async {
+        bloc.add(const ReactionStateHydrated(reacted: true));
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const ReactionToggleRequested());
+      },
+      expect: () => [
+        ReactionOn(postId: _postId),
+        const ReactionLoading(),
+        ReactionOff(postId: _postId),
+      ],
+      verify: (_) {
+        verify(() => mockRepo.unreact(_postId)).called(1);
+        verifyNever(() => mockRepo.react(_postId));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // After hydration to ReactionOff, toggle → ReactionOn (calls react)
+    // -----------------------------------------------------------------------
+
+    blocTest<ReactionToggleBloc, ReactionToggleState>(
+      'ReactionToggleBloc_ToggleAfterHydrationOff_CallsReact: '
+      'after hydrating to ReactionOff, toggle emits [ReactionLoading, ReactionOn]',
+      build: () {
+        when(() => mockRepo.react(_postId))
+            .thenAnswer((_) async => const Success(null));
+        return _makeBloc(mockRepo, initiallyReacted: true);
+      },
+      act: (bloc) async {
+        bloc.add(const ReactionStateHydrated(reacted: false));
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const ReactionToggleRequested());
+      },
+      expect: () => [
+        ReactionOff(postId: _postId),
+        const ReactionLoading(),
+        ReactionOn(postId: _postId),
+      ],
+      verify: (_) {
+        verify(() => mockRepo.react(_postId)).called(1);
+        verifyNever(() => mockRepo.unreact(_postId));
+      },
+    );
   });
 }

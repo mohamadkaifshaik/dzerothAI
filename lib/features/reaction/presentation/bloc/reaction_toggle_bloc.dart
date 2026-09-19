@@ -37,10 +37,22 @@ class ReactionToggleBloc
              : ReactionOff(postId: postId),
        ) {
     on<ReactionToggleRequested>(_onToggleRequested);
+    on<ReactionStateHydrated>(_onStateHydrated);
   }
 
   final ReactionRepository _repository;
   final String _postId;
+
+  void _onStateHydrated(
+    ReactionStateHydrated event,
+    Emitter<ReactionToggleState> emit,
+  ) {
+    if (event.reacted) {
+      emit(ReactionOn(postId: _postId));
+    } else {
+      emit(ReactionOff(postId: _postId));
+    }
+  }
 
   Future<void> _onToggleRequested(
     ReactionToggleRequested event,
