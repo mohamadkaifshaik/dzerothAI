@@ -34,6 +34,11 @@ type Config struct {
 	// environments. Parsed from CORS_ALLOWED_ORIGINS (comma-separated). An empty
 	// slice means no cross-origin requests are permitted — the server still starts.
 	CORSAllowedOrigins []string
+
+	// AdminAddr is the TCP listen address for the admin/observability HTTP server.
+	// This server exposes /livez, /readyz, and /metrics — it must NOT be exposed
+	// on the public API port. Default: ":9091".
+	AdminAddr string
 }
 
 // Load reads all required and optional environment variables, validates them, and
@@ -93,6 +98,7 @@ func Load() (*Config, error) {
 		Environment:        optional("ENVIRONMENT", "local"),
 		LogLevel:           optional("LOG_LEVEL", "info"),
 		CORSAllowedOrigins: corsOrigins,
+		AdminAddr:          optional("ADMIN_ADDR", ":9091"),
 	}, nil
 }
 
