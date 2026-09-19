@@ -1,0 +1,38 @@
+# Git metadata — never needed in the build context
+.git
+.gitignore
+
+# Local environment files — NEVER copy secrets into the image
+.env
+.env.*
+*.env
+
+# Pre-built local binaries (Windows dev, Makefile output)
+bin/
+*.exe
+
+# Test artifacts
+*.test
+*.out
+coverage.html
+coverage.out
+
+# IDE project files
+.idea/
+.vscode/
+*.iml
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Temporary and log files
+*.tmp
+*.log
+
+# Go test cache (not needed in builder)
+testdata/
+
+# Docker files themselves — not needed inside the build context
+Dockerfile
+.dockerignore
