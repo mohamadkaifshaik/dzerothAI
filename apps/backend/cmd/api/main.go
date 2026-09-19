@@ -37,6 +37,7 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"
 	platformDB "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/db"
 	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
+	platformMW "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/middleware"
 	platformRedis "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/redis"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/reaction"
@@ -181,7 +182,7 @@ func run() error {
 
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(chimw.Logger)
+	r.Use(platformMW.AccessLog(log))
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
 	// HTTP metrics middleware records http_requests_total and
