@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,6 +48,10 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/studio"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/user"
 )
+
+// sessionCleanupBatchSize caps the number of expired session rows removed per
+// cleanup cycle. Bounded batches prevent long-duration locks on large tables.
+const sessionCleanupBatchSize = 500
 
 func main() {
 	if err := run(); err != nil {
@@ -276,6 +281,29 @@ func run() error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 
+	// workerCtx is cancelled on shutdown signal so background workers stop
+	// cleanly without waiting for the full HTTP shutdown timeout.
+	workerCtx, workerCancel := context.WithCancel(bgCtx)
+	defer workerCancel()
+	var workerWG sync.WaitGroup
+
+	// ── 13. Start background workers ──────────────────────────────────────────
+	// Session cleanup: removes expired session rows periodically in bounded
+	// batches. Non-critical — DB errors are logged at Warn and the worker
+	// continues. Stops when workerCtx is cancelled (i.e. on shutdown signal).
+	cleanupWorker := auth.NewSessionCleanupWorker(
+		pool,
+		log,
+		cfg.SessionCleanupInterval,
+		sessionCleanupBatchSize,
+	)
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		cleanupWorker.Run(workerCtx)
+		log.Info("session cleanup worker stopped")
+	}()
+
 	serverErr := make(chan error, 2)
 	go func() {
 		log.Info("http server listening", zap.String("addr", srv.Addr))
@@ -296,6 +324,11 @@ func run() error {
 	case sig := <-quit:
 		log.Info("shutdown signal received", zap.String("signal", sig.String()))
 	}
+
+	// Cancel worker context first so background goroutines stop immediately
+	// while HTTP servers drain in-flight requests.
+	workerCancel()
+	workerWG.Wait()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(bgCtx, 15*time.Second)
 	defer shutdownCancel()

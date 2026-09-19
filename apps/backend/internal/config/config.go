@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all application configuration resolved from environment variables.
@@ -55,6 +56,11 @@ type Config struct {
 	// Uses the system's default CA certificates — no self-signed support without additional config.
 	// Default: false.
 	RedisTLS bool
+
+	// SessionCleanupInterval controls how often the background worker removes
+	// expired session rows from PostgreSQL. Accepts any Go duration string
+	// (e.g. "1h", "30m"). Default: 1 hour.
+	SessionCleanupInterval time.Duration
 }
 
 // Load reads all required and optional environment variables, validates them, and
@@ -108,17 +114,18 @@ func Load() (*Config, error) {
 	corsOrigins := parseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
 
 	return &Config{
-		PostgresDSN:        dsn,
-		RedisAddr:          redisAddr,
-		JWTSecret:          jwtSecret,
-		APIPort:            optional("API_PORT", "8080"),
-		Environment:        optional("ENVIRONMENT", "local"),
-		LogLevel:           optional("LOG_LEVEL", "info"),
-		CORSAllowedOrigins: corsOrigins,
-		AdminAddr:          optional("ADMIN_ADDR", ":9091"),
-		PostgresSSLMode:    pgSSLMode,
-		RedisPassword:      optional("REDIS_PASSWORD", ""),
-		RedisTLS:           optionalBool("REDIS_TLS", false),
+		PostgresDSN:            dsn,
+		RedisAddr:              redisAddr,
+		JWTSecret:              jwtSecret,
+		APIPort:                optional("API_PORT", "8080"),
+		Environment:            optional("ENVIRONMENT", "local"),
+		LogLevel:               optional("LOG_LEVEL", "info"),
+		CORSAllowedOrigins:     corsOrigins,
+		AdminAddr:              optional("ADMIN_ADDR", ":9091"),
+		PostgresSSLMode:        pgSSLMode,
+		RedisPassword:          optional("REDIS_PASSWORD", ""),
+		RedisTLS:               optionalBool("REDIS_TLS", false),
+		SessionCleanupInterval: optionalDuration("SESSION_CLEANUP_INTERVAL", time.Hour),
 	}, nil
 }
 
@@ -135,6 +142,20 @@ func optionalBool(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+// optionalDuration reads a Go duration environment variable. When the variable is
+// unset, empty, or unparseable the default is returned.
+func optionalDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 // parseCORSOrigins splits a comma-separated origin list, trims whitespace, and
