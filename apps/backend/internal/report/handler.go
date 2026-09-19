@@ -35,8 +35,8 @@ func NewHandler(svc *Service, logger *zap.Logger) *Handler {
 // Both routes return 204 No Content on success. The response body is always
 // empty — reporter identity is never returned.
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
-	r.With(auth.JWTMiddleware(jwtSecret)).Post("/posts/{postID}/report", h.reportPost)
-	r.With(auth.JWTMiddleware(jwtSecret)).Post("/users/{userID}/report", h.reportUser)
+	r.With(auth.JWTMiddleware(jwtSecret, h.logger)).Post("/posts/{postID}/report", h.reportPost)
+	r.With(auth.JWTMiddleware(jwtSecret, h.logger)).Post("/users/{userID}/report", h.reportUser)
 }
 
 // reportPost handles POST /api/v1/posts/{postID}/report.

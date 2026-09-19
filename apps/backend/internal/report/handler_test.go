@@ -144,7 +144,7 @@ func TestReportPostHandler_Unauthenticated_Returns401(t *testing.T) {
 	postID := uuid.New()
 
 	r := chi.NewRouter()
-	r.With(auth.JWTMiddleware(testJWTSecret)).Post("/posts/{postID}/report", h.handlePost)
+	r.With(auth.JWTMiddleware(testJWTSecret, zap.NewNop())).Post("/posts/{postID}/report", h.handlePost)
 
 	body, _ := json.Marshal(CreateReportRequest{Reason: ReasonSpam})
 	req := httptest.NewRequest(http.MethodPost,
@@ -172,7 +172,7 @@ func TestReportPostHandler_ValidRequest_Returns204(t *testing.T) {
 	h := &testReportHandler{svc: &stubSvc{submitPostErr: nil}, logger: zap.NewNop()}
 
 	r := chi.NewRouter()
-	r.With(auth.JWTMiddleware(testJWTSecret)).Post("/posts/{postID}/report", h.handlePost)
+	r.With(auth.JWTMiddleware(testJWTSecret, zap.NewNop())).Post("/posts/{postID}/report", h.handlePost)
 
 	body, _ := json.Marshal(CreateReportRequest{Reason: ReasonSpam})
 	req := httptest.NewRequest(http.MethodPost,
@@ -207,7 +207,7 @@ func TestReportUserHandler_SelfReport_Returns400(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	r.With(auth.JWTMiddleware(testJWTSecret)).Post("/users/{userID}/report", h.handleUser)
+	r.With(auth.JWTMiddleware(testJWTSecret, zap.NewNop())).Post("/users/{userID}/report", h.handleUser)
 
 	body, _ := json.Marshal(CreateReportRequest{Reason: ReasonSpam})
 	req := httptest.NewRequest(http.MethodPost,

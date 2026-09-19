@@ -111,7 +111,7 @@ func errorCodeFromBody(t *testing.T, body []byte) string {
 // applyJWT wraps the handler with JWTMiddleware and executes the request.
 func applyJWT(h http.HandlerFunc, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	auth.JWTMiddleware(testJWTSecret)(h).ServeHTTP(rec, req)
+	auth.JWTMiddleware(testJWTSecret, zap.NewNop())(h).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -177,7 +177,7 @@ func TestStudioHandler_ReturnsStudioPage_200(t *testing.T) {
 
 	// Build a chi router with JWTMiddleware to exercise the full route.
 	r := chi.NewRouter()
-	r.With(auth.JWTMiddleware(testJWTSecret)).Get("/me/studio/analytics", h.getAnalytics)
+	r.With(auth.JWTMiddleware(testJWTSecret, zap.NewNop())).Get("/me/studio/analytics", h.getAnalytics)
 
 	req := makeAuthedRequest(t, http.MethodGet, "/me/studio/analytics", callerID)
 	rec := httptest.NewRecorder()
@@ -230,7 +230,7 @@ func TestStudioHandler_RegisterRoutes_MountsGetRoute(t *testing.T) {
 	r := chi.NewRouter()
 	// Register via a testable shim that calls the same route registration
 	// pattern as RegisterRoutes.
-	r.With(auth.JWTMiddleware(testJWTSecret)).Get("/me/studio/analytics", h.getAnalytics)
+	r.With(auth.JWTMiddleware(testJWTSecret, zap.NewNop())).Get("/me/studio/analytics", h.getAnalytics)
 
 	// An unauthenticated GET should return 401 (not 404), confirming the route exists.
 	req := httptest.NewRequest(http.MethodGet, "/me/studio/analytics", nil)

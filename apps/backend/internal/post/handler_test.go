@@ -282,7 +282,7 @@ func newChiContextWithParam(r *http.Request, key, val string) *http.Request {
 // request, returning the recorded response.
 func applyJWT(h http.HandlerFunc, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	auth.JWTMiddleware(testJWTSecret)(h).ServeHTTP(rec, req)
+	auth.JWTMiddleware(testJWTSecret, zap.NewNop())(h).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -355,7 +355,7 @@ func TestCreatePostHandler_RateLimitNilRedis(t *testing.T) {
 	// Wire: JWTMiddleware → postRateLimitMiddleware(nil redis) → sentinel.
 	// events is nil — counter instrumentation is a no-op in this test.
 	rl := postRateLimitMiddleware(nil, log, nil)
-	chain := auth.JWTMiddleware(testJWTSecret)(rl(sentinel))
+	chain := auth.JWTMiddleware(testJWTSecret, zap.NewNop())(rl(sentinel))
 
 	req := makeAuthedRequest(t, http.MethodPost, "/posts", nil, userID)
 	rec := httptest.NewRecorder()

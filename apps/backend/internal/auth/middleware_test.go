@@ -3,14 +3,18 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 )
@@ -56,7 +60,7 @@ func TestJWTMiddleware_ValidTokenCallsNextHandler(t *testing.T) {
 	}
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(secret)(sentinel)
+	mw := JWTMiddleware(secret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
@@ -82,7 +86,7 @@ func TestJWTMiddleware_ValidTokenSetsUserIDInContext(t *testing.T) {
 	}
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(secret)(sentinel)
+	mw := JWTMiddleware(secret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
@@ -121,7 +125,7 @@ func TestJWTMiddleware_ValidTokenSetsSessionJTIInContext(t *testing.T) {
 	expectedJTI := claims.ID
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(secret)(sentinel)
+	mw := JWTMiddleware(secret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
@@ -144,7 +148,7 @@ func TestJWTMiddleware_ValidTokenSetsSessionJTIInContext(t *testing.T) {
 
 func TestJWTMiddleware_MissingAuthorizationHeader_Returns401(t *testing.T) {
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(testSecret)(sentinel)
+	mw := JWTMiddleware(testSecret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	rec := httptest.NewRecorder()
@@ -166,7 +170,7 @@ func TestJWTMiddleware_MissingAuthorizationHeader_Returns401(t *testing.T) {
 
 func TestJWTMiddleware_MalformedBearerHeader_Returns401(t *testing.T) {
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(testSecret)(sentinel)
+	mw := JWTMiddleware(testSecret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	// "Bearer " prefix without an actual token value.
@@ -182,7 +186,7 @@ func TestJWTMiddleware_MalformedBearerHeader_Returns401(t *testing.T) {
 
 func TestJWTMiddleware_NonBearerScheme_Returns401(t *testing.T) {
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(testSecret)(sentinel)
+	mw := JWTMiddleware(testSecret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
@@ -219,7 +223,7 @@ func TestJWTMiddleware_ExpiredToken_Returns401(t *testing.T) {
 	}
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(testSecret)(sentinel)
+	mw := JWTMiddleware(testSecret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+signed)
@@ -251,7 +255,7 @@ func TestJWTMiddleware_TamperedToken_Returns401(t *testing.T) {
 	tampered := parts[0] + "." + parts[1] + "." + parts[2]
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(testSecret)(sentinel)
+	mw := JWTMiddleware(testSecret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+tampered)
@@ -374,7 +378,7 @@ func TestJWTMiddleware_ValidTokenSetsSessionIDInContext(t *testing.T) {
 	}
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(secret)(sentinel)
+	mw := JWTMiddleware(secret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
@@ -408,7 +412,7 @@ func TestJWTMiddleware_TokenWithNilSessionID_SessionIDFromContextReturnsFalse(t 
 	}
 
 	sentinel := &handlerSentinel{}
-	mw := JWTMiddleware(secret)(sentinel)
+	mw := JWTMiddleware(secret, zap.NewNop())(sentinel)
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
@@ -461,4 +465,312 @@ func TestRateLimitMiddleware_NilRedisClient_FailsClosed503(t *testing.T) {
 	if code != apierror.CodeServiceUnavailable {
 		t.Errorf("error code = %q, want %q", code, apierror.CodeServiceUnavailable)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// JWTMiddleware — structured WARN logging for authentication failures
+// ---------------------------------------------------------------------------
+//
+// These tests use zaptest/observer to capture log output without real I/O.
+// zaptest/observer ships inside go.uber.org/zap — no new dependency required.
+
+// TestJWTMiddleware_MalformedToken_EmitsWarn verifies that a completely
+// malformed token (not a valid JWT structure) causes JWTMiddleware to return
+// 401 and emit exactly one WARN log with msg "jwt authentication failure".
+func TestJWTMiddleware_MalformedToken_EmitsWarn(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer this.is.not.a.jwt")
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+	if sentinel.called {
+		t.Fatal("next handler must not be called for malformed token")
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 WARN log entry, got %d", len(entries))
+	}
+	if entries[0].Level != zapcore.WarnLevel {
+		t.Errorf("log level = %v, want WARN", entries[0].Level)
+	}
+	if entries[0].Message != "jwt authentication failure" {
+		t.Errorf("log message = %q, want %q", entries[0].Message, "jwt authentication failure")
+	}
+
+	reasonField := entries[0].ContextMap()["reason"]
+	if reasonField == "" {
+		t.Error("WARN log must include a non-empty 'reason' field")
+	}
+}
+
+// TestJWTMiddleware_InvalidSignature_EmitsWarn verifies that a token signed
+// with a different secret emits a WARN log with reason "invalid_signature".
+func TestJWTMiddleware_InvalidSignature_EmitsWarn(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	// Generate with a different secret so ValidateAccessToken will reject it.
+	differentSecret := []byte("different-secret-that-is-at-least-32-bytes!")
+	tokenStr, err := GenerateAccessToken(uuid.New(), uuid.New(), differentSecret)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken error: %v", err)
+	}
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodPost, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 WARN log entry, got %d", len(entries))
+	}
+	if entries[0].Level != zapcore.WarnLevel {
+		t.Errorf("log level = %v, want WARN", entries[0].Level)
+	}
+	if entries[0].Message != "jwt authentication failure" {
+		t.Errorf("log message = %q, want %q", entries[0].Message, "jwt authentication failure")
+	}
+
+	reason := entries[0].ContextMap()["reason"]
+	if reason != "invalid_signature" {
+		t.Errorf("reason field = %q, want %q", reason, "invalid_signature")
+	}
+}
+
+// TestJWTMiddleware_ExpiredToken_EmitsWarn verifies that an expired token
+// emits a WARN log with reason "expired".
+func TestJWTMiddleware_ExpiredToken_EmitsWarn(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	userID := uuid.New()
+	now := time.Now().UTC()
+	claims := Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(now.Add(-30 * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(-15 * time.Minute)),
+			ID:        uuid.New().String(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString(testSecret)
+	if err != nil {
+		t.Fatalf("signing error: %v", err)
+	}
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+signed)
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 WARN log entry, got %d", len(entries))
+	}
+	if entries[0].Level != zapcore.WarnLevel {
+		t.Errorf("log level = %v, want WARN", entries[0].Level)
+	}
+
+	reason := entries[0].ContextMap()["reason"]
+	if reason != "expired" {
+		t.Errorf("reason field = %q, want %q", reason, "expired")
+	}
+}
+
+// TestJWTMiddleware_ValidToken_NoWarn verifies that a valid token does NOT
+// emit any WARN log — the happy path must remain silent.
+func TestJWTMiddleware_ValidToken_NoWarn(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	tokenStr, err := GenerateAccessToken(uuid.New(), uuid.New(), testSecret)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken error: %v", err)
+	}
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if !sentinel.called {
+		t.Fatal("next handler should have been called for valid token")
+	}
+	if logs.Len() != 0 {
+		t.Errorf("expected 0 WARN log entries for valid token, got %d", logs.Len())
+	}
+}
+
+// TestJWTMiddleware_NoAuthorizationHeader_NoWarn verifies that a missing
+// Authorization header returns 401 but does NOT emit a WARN log.
+// A missing header is not a forgery attempt — it is a common client error.
+func TestJWTMiddleware_NoAuthorizationHeader_NoWarn(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	// No Authorization header.
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+	if logs.Len() != 0 {
+		t.Errorf("expected 0 WARN log entries for missing header, got %d", logs.Len())
+	}
+}
+
+// TestJWTMiddleware_FailureLog_NoRawToken verifies that the WARN log fields
+// do NOT contain the raw Authorization header value or any substring of the
+// JWT token string. This is a security invariant: the raw token must never
+// appear in logs.
+func TestJWTMiddleware_FailureLog_NoRawToken(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	// Generate a token with a recognizable prefix substring.
+	tokenStr, err := GenerateAccessToken(uuid.New(), uuid.New(), testSecret)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken error: %v", err)
+	}
+
+	// Tamper the signature so the middleware rejects it — this exercises the
+	// WARN log path while keeping a valid, recognizable JWT structure.
+	parts := splitJWT(tokenStr)
+	if len(parts) != 3 {
+		t.Fatalf("unexpected JWT structure")
+	}
+	parts[2] = "invalidsignatureXXXXXX"
+	tampered := parts[0] + "." + parts[1] + "." + parts[2]
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+tampered)
+	rec := httptest.NewRecorder()
+
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 WARN log entry, got %d", len(entries))
+	}
+
+	// Reconstruct the full log entry as a string for substring search.
+	entry := entries[0]
+	logStr := entry.Message
+	for k, v := range entry.ContextMap() {
+		logStr += " " + k + "=" + strings.Join(toStringSlice(v), ",")
+	}
+
+	// The raw token (or any of its dot-separated segments) must not appear.
+	for i, part := range parts {
+		if strings.Contains(logStr, part) {
+			t.Errorf("WARN log contains JWT segment[%d] (first 10 chars: %q) — raw token must never be logged", i, truncate(part, 10))
+		}
+	}
+	if strings.Contains(logStr, "Bearer") {
+		t.Error("WARN log contains 'Bearer' scheme value — Authorization header must never be logged")
+	}
+}
+
+// TestJWTMiddleware_FailureLog_HasRequestID verifies that when the chi
+// RequestID middleware has placed a request ID in the context, the WARN log
+// includes a "request_id" field.
+func TestJWTMiddleware_FailureLog_HasRequestID(t *testing.T) {
+	log, logs := newObservedLogger(zapcore.WarnLevel)
+
+	sentinel := &handlerSentinel{}
+	mw := JWTMiddleware(testSecret, log)(sentinel)
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer this.is.not.a.jwt")
+
+	// Inject a chi request ID into the context using the public chimw.RequestIDKey.
+	// chimw.GetReqID (used by ctxlog.RequestIDField) reads from this key.
+	const testRequestID = "test-request-id-12345"
+	ctx := context.WithValue(req.Context(), chimw.RequestIDKey, testRequestID)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	mw.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 WARN log entry, got %d", len(entries))
+	}
+
+	requestIDField, ok := entries[0].ContextMap()["request_id"]
+	if !ok {
+		t.Fatal("WARN log must include 'request_id' field when request ID is present in context")
+	}
+	if requestIDField != testRequestID {
+		t.Errorf("request_id field = %q, want %q", requestIDField, testRequestID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// test helpers for WARN log tests
+// ---------------------------------------------------------------------------
+
+// toStringSlice converts an interface{} log field value to a string slice
+// for substring matching. Only handles common zap field value types.
+func toStringSlice(v interface{}) []string {
+	if v == nil {
+		return nil
+	}
+	return []string{fmt.Sprint(v)}
+}
+
+// truncate returns up to n runes of s, for safe log output in test failures.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

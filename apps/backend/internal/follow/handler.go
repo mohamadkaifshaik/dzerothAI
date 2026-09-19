@@ -50,16 +50,16 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 	followWriteRL := followRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /users/{userID}/follow — authenticated + rate-limited.
-	r.With(auth.JWTMiddleware(jwtSecret), followWriteRL).Post("/users/{userID}/follow", h.follow)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log), followWriteRL).Post("/users/{userID}/follow", h.follow)
 
 	// DELETE /users/{userID}/follow — authenticated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Delete("/users/{userID}/follow", h.unfollow)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/users/{userID}/follow", h.unfollow)
 
 	// GET /users/{userID}/following — authenticated, paginated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Get("/users/{userID}/following", h.listFollowing)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Get("/users/{userID}/following", h.listFollowing)
 
 	// GET /users/{userID}/followers — authenticated, paginated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Get("/users/{userID}/followers", h.listFollowers)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Get("/users/{userID}/followers", h.listFollowers)
 }
 
 // follow handles POST /api/v1/users/{userID}/follow.

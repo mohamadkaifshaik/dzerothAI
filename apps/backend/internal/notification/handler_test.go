@@ -134,8 +134,8 @@ func notifBearerToken(t *testing.T, userID uuid.UUID) string {
 
 func buildNotifRouter(h *testNotifHandler) chi.Router {
 	r := chi.NewRouter()
-	r.With(auth.JWTMiddleware(notifTestJWTSecret)).Get("/me/notifications", h.list)
-	r.With(auth.JWTMiddleware(notifTestJWTSecret)).Put("/me/notifications/read", h.markAllRead)
+	r.With(auth.JWTMiddleware(notifTestJWTSecret, zap.NewNop())).Get("/me/notifications", h.list)
+	r.With(auth.JWTMiddleware(notifTestJWTSecret, zap.NewNop())).Put("/me/notifications/read", h.markAllRead)
 	return r
 }
 

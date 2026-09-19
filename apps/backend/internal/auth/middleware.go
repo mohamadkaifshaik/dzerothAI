@@ -2,17 +2,20 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	rdb "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/ctxlog"
 	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
@@ -53,8 +56,12 @@ func SessionIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 
 // JWTMiddleware extracts and validates the Bearer JWT from the Authorization header.
 // On success it sets the user UUID and jti in the request context and calls next.
-// On failure it returns 401 with an apierror body. No database query is made.
-func JWTMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
+// On failure it returns 401 with an apierror body and emits a structured WARN log
+// (for actual JWT validation failures — not for missing/malformed headers). No
+// database query is made.
+//
+// log must be non-nil. Pass zap.NewNop() in tests that do not inspect logs.
+func JWTMiddleware(jwtSecret []byte, log *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -74,6 +81,11 @@ func JWTMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
 			tokenStr := strings.TrimPrefix(authHeader, prefix)
 			claims, err := ValidateAccessToken(tokenStr, jwtSecret)
 			if err != nil {
+				log.Warn("jwt authentication failure",
+					ctxlog.RequestIDField(r.Context()),
+					zap.String("method", r.Method),
+					zap.String("reason", classifyJWTError(err)),
+				)
 				apierror.Render(w, http.StatusUnauthorized,
 					apierror.New(apierror.CodeUnauthorized, "Invalid or expired access token."))
 				return
@@ -81,6 +93,11 @@ func JWTMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
 
 			userID, err := uuid.Parse(claims.Subject)
 			if err != nil {
+				log.Warn("jwt authentication failure",
+					ctxlog.RequestIDField(r.Context()),
+					zap.String("method", r.Method),
+					zap.String("reason", "invalid_claims"),
+				)
 				apierror.Render(w, http.StatusUnauthorized,
 					apierror.New(apierror.CodeUnauthorized, "Invalid token subject."))
 				return
@@ -91,6 +108,37 @@ func JWTMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, ctxKeySessionID, claims.SessionID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+// classifyJWTError converts a JWT validation error into a safe bounded category
+// string suitable for structured logging. The raw error message is never used
+// as a log field value — only the bounded category is emitted.
+//
+// Categories:
+//
+//	"malformed"          — token format is invalid (cannot be parsed as a JWT)
+//	"expired"            — token expiry claim is in the past
+//	"invalid_signature"  — HMAC signature does not match (forged or tampered)
+//	"invalid_claims"     — claims parsing failed (nbf, missing required claims, etc.)
+//	"unknown"            — unrecognized error
+func classifyJWTError(err error) string {
+	switch {
+	case errors.Is(err, jwt.ErrTokenMalformed):
+		return "malformed"
+	case errors.Is(err, jwt.ErrTokenExpired):
+		return "expired"
+	case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+		return "invalid_signature"
+	case errors.Is(err, jwt.ErrTokenInvalidClaims),
+		errors.Is(err, jwt.ErrTokenNotValidYet),
+		errors.Is(err, jwt.ErrTokenInvalidId),
+		errors.Is(err, jwt.ErrTokenInvalidIssuer),
+		errors.Is(err, jwt.ErrTokenInvalidAudience),
+		errors.Is(err, jwt.ErrTokenInvalidSubject):
+		return "invalid_claims"
+	default:
+		return "unknown"
 	}
 }
 

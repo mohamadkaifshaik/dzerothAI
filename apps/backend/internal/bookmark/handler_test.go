@@ -188,7 +188,7 @@ func newChiContextWithParam(r *http.Request, key, val string) *http.Request {
 
 func applyJWT(h http.HandlerFunc, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	auth.JWTMiddleware(testJWTSecret)(h).ServeHTTP(rec, req)
+	auth.JWTMiddleware(testJWTSecret, zap.NewNop())(h).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -236,7 +236,7 @@ func TestBookmarkHandler_RateLimitNilRedis(t *testing.T) {
 	userID := uuid.New()
 	// events is nil — counter instrumentation is a no-op in this test.
 	rl := bookmarkRateLimitMiddleware(nil, log, nil)
-	chain := auth.JWTMiddleware(testJWTSecret)(rl(sentinel))
+	chain := auth.JWTMiddleware(testJWTSecret, zap.NewNop())(rl(sentinel))
 
 	req := makeAuthedRequest(t, http.MethodPost, "/posts/"+uuid.New().String()+"/bookmark", userID)
 	rec := httptest.NewRecorder()

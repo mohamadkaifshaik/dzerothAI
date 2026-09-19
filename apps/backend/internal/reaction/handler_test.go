@@ -161,8 +161,8 @@ func reactionBearerToken(t *testing.T, userID uuid.UUID) string {
 
 func buildReactionRouter(h *testReactionHandler) chi.Router {
 	r := chi.NewRouter()
-	r.With(auth.JWTMiddleware(reactionTestJWTSecret)).Post("/posts/{postID}/react", h.react)
-	r.With(auth.JWTMiddleware(reactionTestJWTSecret)).Delete("/posts/{postID}/react", h.unreact)
+	r.With(auth.JWTMiddleware(reactionTestJWTSecret, zap.NewNop())).Post("/posts/{postID}/react", h.react)
+	r.With(auth.JWTMiddleware(reactionTestJWTSecret, zap.NewNop())).Delete("/posts/{postID}/react", h.unreact)
 	return r
 }
 

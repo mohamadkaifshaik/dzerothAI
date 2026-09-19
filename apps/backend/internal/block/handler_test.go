@@ -52,7 +52,7 @@ func injectAuthContext(r *http.Request, token string, secret []byte) (*http.Requ
 	})
 	w := httptest.NewRecorder()
 	r.Header.Set("Authorization", "Bearer "+token)
-	auth.JWTMiddleware(secret)(inner).ServeHTTP(w, r)
+	auth.JWTMiddleware(secret, zap.NewNop())(inner).ServeHTTP(w, r)
 	return enriched, called
 }
 
@@ -138,7 +138,7 @@ func TestBlockHandler_RateLimitNilRedis(t *testing.T) {
 	})
 
 	// Chain: JWTMiddleware → rate limit → inner
-	chain := auth.JWTMiddleware(jwtSecret)(rl(inner))
+	chain := auth.JWTMiddleware(jwtSecret, zap.NewNop())(rl(inner))
 
 	r := httptest.NewRequest(http.MethodPost, "/users/"+uuid.New().String()+"/block", nil)
 	r.Header.Set("Authorization", "Bearer "+tokenStr)

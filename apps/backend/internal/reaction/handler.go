@@ -37,8 +37,8 @@ func NewHandler(svc *Service, postLookup PostAuthorLookup, log *zap.Logger) *Han
 // per OPEN-P4-3): nil rdb or Redis errors allow the request through; only an
 // explicit limit-exceeded result returns 429.
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
-	r.With(auth.JWTMiddleware(jwtSecret)).Post("/posts/{postID}/react", h.react)
-	r.With(auth.JWTMiddleware(jwtSecret)).Delete("/posts/{postID}/react", h.unreact)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Post("/posts/{postID}/react", h.react)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/posts/{postID}/react", h.unreact)
 }
 
 // react handles POST /api/v1/posts/{postID}/react.

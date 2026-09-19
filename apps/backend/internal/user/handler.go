@@ -43,7 +43,7 @@ func (h *Handler) SetBlockChecker(bc BlockChecker) {
 // All routes require JWT authentication; the JWTMiddleware must be applied
 // by the caller or via a sub-router.
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
-	r.With(auth.JWTMiddleware(jwtSecret)).Group(func(r chi.Router) {
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Group(func(r chi.Router) {
 		r.Get("/me", h.getMe)
 		r.Put("/me", h.updateMe)
 		r.Get("/me/settings", h.getSettings)

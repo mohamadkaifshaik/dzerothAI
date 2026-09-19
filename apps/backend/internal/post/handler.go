@@ -61,13 +61,13 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 	postWriteRL := postRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /posts — authenticated + rate-limited.
-	r.With(auth.JWTMiddleware(jwtSecret), postWriteRL).Post("/posts", h.createPost)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log), postWriteRL).Post("/posts", h.createPost)
 
 	// GET /posts/{postID} — public.
 	r.Get("/posts/{postID}", h.getPost)
 
 	// DELETE /posts/{postID} — authenticated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Delete("/posts/{postID}", h.deletePost)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/posts/{postID}", h.deletePost)
 
 	// GET /posts/{postID}/thread — public, paginated.
 	r.Get("/posts/{postID}/thread", h.getThread)

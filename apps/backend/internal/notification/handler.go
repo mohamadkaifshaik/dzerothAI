@@ -30,8 +30,8 @@ func NewHandler(svc *Service, log *zap.Logger) *Handler {
 //	GET /me/notifications      — authenticated, owner-only, cursor-paginated
 //	PUT /me/notifications/read — authenticated, marks all notifications as read
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
-	r.With(auth.JWTMiddleware(jwtSecret)).Get("/me/notifications", h.listNotifications)
-	r.With(auth.JWTMiddleware(jwtSecret)).Put("/me/notifications/read", h.markAllRead)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Get("/me/notifications", h.listNotifications)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Put("/me/notifications/read", h.markAllRead)
 }
 
 // listNotifications handles GET /api/v1/me/notifications.

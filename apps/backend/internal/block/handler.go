@@ -50,16 +50,16 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 	blockWriteRL := blockRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /users/{userID}/block — authenticated + rate-limited.
-	r.With(auth.JWTMiddleware(jwtSecret), blockWriteRL).Post("/users/{userID}/block", h.block)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log), blockWriteRL).Post("/users/{userID}/block", h.block)
 
 	// DELETE /users/{userID}/block — authenticated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Delete("/users/{userID}/block", h.unblock)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/users/{userID}/block", h.unblock)
 
 	// POST /users/{userID}/mute — authenticated + rate-limited.
-	r.With(auth.JWTMiddleware(jwtSecret), blockWriteRL).Post("/users/{userID}/mute", h.mute)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log), blockWriteRL).Post("/users/{userID}/mute", h.mute)
 
 	// DELETE /users/{userID}/mute — authenticated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Delete("/users/{userID}/mute", h.unmute)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/users/{userID}/mute", h.unmute)
 }
 
 // block handles POST /api/v1/users/{userID}/block.

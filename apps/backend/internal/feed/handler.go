@@ -29,7 +29,7 @@ func NewHandler(svc *Service, log *zap.Logger) *Handler {
 //
 //	GET /feeds/home — authenticated; returns the caller's home timeline
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
-	r.With(auth.JWTMiddleware(jwtSecret)).Get("/feeds/home", h.getHomeFeed)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Get("/feeds/home", h.getHomeFeed)
 }
 
 // getHomeFeed handles GET /api/v1/feeds/home.

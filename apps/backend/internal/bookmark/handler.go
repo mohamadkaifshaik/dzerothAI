@@ -49,13 +49,13 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 	bookmarkRL := bookmarkRateLimitMiddleware(redisClient, h.log, h.events)
 
 	// POST /posts/{postID}/bookmark — authenticated + rate-limited.
-	r.With(auth.JWTMiddleware(jwtSecret), bookmarkRL).Post("/posts/{postID}/bookmark", h.addBookmark)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log), bookmarkRL).Post("/posts/{postID}/bookmark", h.addBookmark)
 
 	// DELETE /posts/{postID}/bookmark — authenticated.
-	r.With(auth.JWTMiddleware(jwtSecret)).Delete("/posts/{postID}/bookmark", h.removeBookmark)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/posts/{postID}/bookmark", h.removeBookmark)
 
 	// GET /me/bookmarks — authenticated, owner-only (uses JWT callerID, no path param).
-	r.With(auth.JWTMiddleware(jwtSecret)).Get("/me/bookmarks", h.listBookmarks)
+	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Get("/me/bookmarks", h.listBookmarks)
 }
 
 // addBookmark handles POST /api/v1/posts/{postID}/bookmark.

@@ -51,7 +51,7 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 	r.With(registerRL).Post("/auth/register", h.register)
 	r.With(loginRL).Post("/auth/login", h.login)
 	r.Post("/auth/refresh", h.refresh)
-	r.With(JWTMiddleware(jwtSecret)).Post("/auth/logout", h.logout)
+	r.With(JWTMiddleware(jwtSecret, h.log)).Post("/auth/logout", h.logout)
 }
 
 // register handles POST /api/v1/auth/register.

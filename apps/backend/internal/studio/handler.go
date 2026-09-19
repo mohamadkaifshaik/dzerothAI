@@ -28,7 +28,7 @@ func NewHandler(svc *Service, logger *zap.Logger) *Handler {
 //
 //	GET /me/studio/analytics — returns StudioPage (owner-only, JWT-scoped)
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
-	r.With(auth.JWTMiddleware(jwtSecret)).Get("/me/studio/analytics", h.getAnalytics)
+	r.With(auth.JWTMiddleware(jwtSecret, h.logger)).Get("/me/studio/analytics", h.getAnalytics)
 }
 
 // getAnalytics handles GET /me/studio/analytics.

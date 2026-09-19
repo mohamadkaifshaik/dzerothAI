@@ -171,7 +171,7 @@ func newFollowChiContextWithParam(r *http.Request, key, val string) *http.Reques
 // the request, returning the recorded response.
 func applyFollowJWT(h http.HandlerFunc, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	auth.JWTMiddleware(testFollowJWTSecret)(h).ServeHTTP(rec, req)
+	auth.JWTMiddleware(testFollowJWTSecret, zap.NewNop())(h).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -221,7 +221,7 @@ func TestFollowHandler_RateLimitNilRedis(t *testing.T) {
 	// Wire: JWTMiddleware → followRateLimitMiddleware(nil redis) → sentinel.
 	// events is nil — counter instrumentation is a no-op in this test.
 	rl := followRateLimitMiddleware(nil, log, nil)
-	chain := auth.JWTMiddleware(testFollowJWTSecret)(rl(sentinel))
+	chain := auth.JWTMiddleware(testFollowJWTSecret, zap.NewNop())(rl(sentinel))
 
 	req := makeFollowAuthedRequest(t, http.MethodPost, "/users/"+uuid.New().String()+"/follow", userID)
 	rec := httptest.NewRecorder()
