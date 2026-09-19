@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,21 @@ type Config struct {
 	// This server exposes /livez, /readyz, and /metrics — it must NOT be exposed
 	// on the public API port. Default: ":9091".
 	AdminAddr string
+
+	// PostgresSSLMode is the sslmode query parameter passed to the PostgreSQL DSN.
+	// Valid values: disable, allow, prefer, require, verify-ca, verify-full.
+	// Invalid values are passed through and rejected by the pgx driver at connect time.
+	// Default: "disable".
+	PostgresSSLMode string
+
+	// RedisPassword is the AUTH password sent to Redis on connect.
+	// Leave empty for unauthenticated local Redis.
+	RedisPassword string
+
+	// RedisTLS enables TLS for the Redis connection when true.
+	// Uses the system's default CA certificates — no self-signed support without additional config.
+	// Default: false.
+	RedisTLS bool
 }
 
 // Load reads all required and optional environment variables, validates them, and
@@ -82,10 +98,11 @@ func Load() (*Config, error) {
 	}
 
 	pgPort := optional("POSTGRES_PORT", "5432")
+	pgSSLMode := optional("POSTGRES_SSL_MODE", "disable")
 
 	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		pgUser, pgPassword, pgHost, pgPort, pgDB,
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		pgUser, pgPassword, pgHost, pgPort, pgDB, pgSSLMode,
 	)
 
 	corsOrigins := parseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
@@ -99,7 +116,25 @@ func Load() (*Config, error) {
 		LogLevel:           optional("LOG_LEVEL", "info"),
 		CORSAllowedOrigins: corsOrigins,
 		AdminAddr:          optional("ADMIN_ADDR", ":9091"),
+		PostgresSSLMode:    pgSSLMode,
+		RedisPassword:      optional("REDIS_PASSWORD", ""),
+		RedisTLS:           optionalBool("REDIS_TLS", false),
 	}, nil
+}
+
+// optionalBool reads a boolean environment variable. When the variable is unset or
+// empty the default is returned. Unparseable values are silently treated as the default
+// (consistent with the pass-through philosophy used for other optional fields).
+func optionalBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 // parseCORSOrigins splits a comma-separated origin list, trims whitespace, and

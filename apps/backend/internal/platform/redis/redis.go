@@ -3,19 +3,38 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+// buildOptions constructs the redis.Options from the provided parameters.
+// Extracted so that tests can verify option construction without dialing.
+func buildOptions(addr, password string, useTLS bool) *redis.Options {
+	opts := &redis.Options{
+		Addr:     addr,
+		Password: password,
+	}
+	if useTLS {
+		opts.TLSConfig = &tls.Config{} // system CA pool; MinVersion defaults to TLS 1.2
+	}
+	return opts
+}
+
 // Connect creates a new Redis client, verifies connectivity with Ping, and returns the
 // client. If Ping fails the error is returned but callers may choose to log and continue
 // (Redis availability is required only at the rate-limiting boundary, not at startup).
-func Connect(ctx context.Context, addr string) (*redis.Client, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
+//
+// password is sent as the Redis AUTH credential; pass an empty string for unauthenticated
+// connections (e.g. local development). useTLS enables TLS using the system's default CA
+// pool — suitable for managed Redis providers (AWS ElastiCache, GCP Memorystore, etc.).
+//
+// The password is never logged.
+func Connect(ctx context.Context, addr, password string, useTLS bool) (*redis.Client, error) {
+	opts := buildOptions(addr, password, useTLS)
+	client := redis.NewClient(opts)
 
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

@@ -92,7 +92,7 @@ func run() error {
 	}
 
 	// ── 5. Connect to Redis (non-fatal — fail closed at rate limiter) ─────────
-	redisClient, redisErr := platformRedis.Connect(bgCtx, cfg.RedisAddr)
+	redisClient, redisErr := platformRedis.Connect(bgCtx, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisTLS)
 	if redisErr != nil {
 		// Redis unavailability is not fatal at startup. Auth endpoints will fail
 		// closed (503) when they cannot reach Redis.
