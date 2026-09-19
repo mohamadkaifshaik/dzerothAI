@@ -35,6 +35,7 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/feed"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/follow"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/buildinfo"
 	platformDB "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/db"
 	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 	platformMW "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/middleware"
@@ -71,6 +72,9 @@ func run() error {
 	log.Info("starting dzeroth api",
 		zap.String("environment", cfg.Environment),
 		zap.String("port", cfg.APIPort),
+		zap.String("version", buildinfo.Version),
+		zap.String("commit", buildinfo.Commit),
+		zap.String("build_time", buildinfo.BuildTime),
 	)
 
 	// ── 3. Connect to PostgreSQL ──────────────────────────────────────────────
@@ -183,6 +187,10 @@ func run() error {
 	// counter and state-change logger. Updated by piggybacking on /health and /readyz
 	// handler calls — no extra goroutine.
 	infraMetrics := platformMetrics.NewInfraMetrics(prometheus.DefaultRegisterer, log)
+	// Build identity gauge: dzeroth_build_info{version,commit,build_time}=1.
+	// Populated at build time via -ldflags; defaults to dev/unknown/unknown for local builds.
+	platformMetrics.RegisterBuildInfo(prometheus.DefaultRegisterer,
+		buildinfo.Version, buildinfo.Commit, buildinfo.BuildTime)
 	authSvc.SetEvents(eventMetrics)
 	authHandler.SetEvents(eventMetrics)
 	feedSvc.SetEvents(eventMetrics)

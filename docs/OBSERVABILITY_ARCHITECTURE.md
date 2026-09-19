@@ -25,7 +25,7 @@ Confirmed log events emitted at startup (all at INFO level):
 
 | Event | Fields |
 |---|---|
-| `starting dzeroth api` | `environment`, `port` |
+| `starting dzeroth api` | `environment`, `port`, `version`, `commit`, `build_time` |
 | `database connected` | — |
 | `database migrations applied` | — |
 | `redis connected` | `addr` |
@@ -41,7 +41,7 @@ Shutdown logging:
 | `shutdown signal received` | `signal` |
 | `server stopped cleanly` | — |
 
-No `version`, `git_commit`, or `build_time` fields are logged at startup.
+`version`, `commit`, and `build_time` fields are logged at startup. **IMPLEMENTED in Phase 7C-7.**
 
 ### 1.3 HTTP Middleware Stack
 
@@ -182,7 +182,7 @@ Prioritized by impact.
 
 8. **No pgxpool stats exposure.** ~~Connection pool exhaustion is a common production failure mode. The pool's `Stat()` is never sampled or logged.~~ **RESOLVED in Phase 7C-4:** Four Prometheus gauges (`dzeroth_db_pool_connections_{total,acquired,idle,max}`) are now updated on every `/health` and `/readyz` call.
 
-9. **No build/version identity at startup.** There is no `version` or `git_commit` logged at startup, making it impossible to determine which deployed artifact is running from logs alone.
+9. ~~**No build/version identity at startup.**~~ **RESOLVED in Phase 7C-7:** `version`, `commit`, and `build_time` fields are now logged at startup. `dzeroth_build_info{version,commit,build_time}=1` metric is registered on startup. Values are injected at build time via `-ldflags`; local builds use stable defaults (`dev`/`unknown`/`unknown`).
 
 ### P2 — Medium
 
@@ -888,13 +888,72 @@ Not yet implemented in Phase 7C-6:
 - `RecordRedisError()` call-site wiring to rate-limit middleware. Deferred to avoid changing signatures across multiple service/handler packages. The counter is registered and incrementable; wiring is a targeted follow-up.
 - Periodic DB pool goroutine (deferred — no background goroutine constraint).
 
-### Phase 7C-7: Request ID Propagation and Build Identity
+### Phase 7C-7: Build Identity
 
-Files: `apps/backend/cmd/api/main.go`
+**IMPLEMENTED** — `apps/backend/internal/platform/buildinfo/buildinfo.go`, `apps/backend/internal/platform/metrics/buildinfo.go`, `apps/backend/cmd/api/main.go`
 
-- At startup, log `version` and `git_commit` fields (read from `BUILD_VERSION` env var and embedded via `-ldflags`).
-- In the zap HTTP logging middleware (from Phase 7C-3), extract `chimw.GetReqID(r.Context())` and include it in the access log.
-- Optionally: thread the request ID into service-layer logs for the most critical paths (auth, feed) without changing service signatures — pass it as a context-extracted field at the handler level.
+#### Build-info package
+
+New package `apps/backend/internal/platform/buildinfo` holds three package-level variables:
+
+```go
+var (
+    Version   = "dev"
+    Commit    = "unknown"
+    BuildTime = "unknown"
+)
+```
+
+Variables default to stable values for local/development builds. CI/CD supplies real values via `-ldflags`:
+
+```
+go build -ldflags "\
+  -X github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/buildinfo.Version=1.0.0 \
+  -X github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/buildinfo.Commit=abc1234 \
+  -X github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/buildinfo.BuildTime=2026-09-19T12:00:00Z" \
+  ./cmd/api
+```
+
+Local behavior: the application compiles and runs with `dev`/`unknown`/`unknown` when no ldflags are provided. No runtime clock is used for `BuildTime`.
+
+#### Build-info Prometheus metric
+
+`RegisterBuildInfo` in `apps/backend/internal/platform/metrics/buildinfo.go` registers:
+
+```
+dzeroth_build_info{version, commit, build_time} = 1.0
+```
+
+Standard Prometheus build-info pattern: a GaugeVec permanently set to 1.0 with three static identity labels. Exactly one series per process. Zero per-request cardinality.
+
+Registered alongside `New`, `NewEvents`, and `NewInfraMetrics` in `main.go` step 7 using `prometheus.DefaultRegisterer`. Empty string arguments substitute safe defaults (`dev`/`unknown`/`unknown`) rather than panicking.
+
+#### Startup log fields added
+
+The existing `log.Info("starting dzeroth api", ...)` call in `run()` was extended with three new fields:
+
+| Field | Source |
+|---|---|
+| `version` | `buildinfo.Version` |
+| `commit` | `buildinfo.Commit` |
+| `build_time` | `buildinfo.BuildTime` |
+
+No second startup log call was introduced.
+
+#### Tests added
+
+7 new tests across two files:
+
+`apps/backend/internal/platform/buildinfo/buildinfo_test.go` (1 test):
+- `TestBuildInfo_DefaultsAreStable`: confirms `Version=="dev"`, `Commit=="unknown"`, `BuildTime=="unknown"`.
+
+`apps/backend/internal/platform/metrics/buildinfo_test.go` (6 tests):
+- `TestRegisterBuildInfo_GaugeValue`: gauge value is 1.0 after registration.
+- `TestRegisterBuildInfo_Labels`: labels `version`, `commit`, `build_time` carry the supplied values.
+- `TestRegisterBuildInfo_DefaultsAreNonEmpty`: using `buildinfo.*` defaults produces non-empty label values.
+- `TestRegisterBuildInfo_ExactlyOneSeries`: exactly 1 MetricFamily with exactly 1 Metric after registration.
+- `TestRegisterBuildInfo_NoRequestCardinality`: second `RegisterBuildInfo` call on the same registry panics via `MustRegister` (proves no per-request cardinality).
+- `TestRegisterBuildInfo_NoPanic_EmptyStrings`: empty string arguments do not panic; safe defaults are substituted.
 
 ### Phase 7C-8: Tests for All New Components
 
