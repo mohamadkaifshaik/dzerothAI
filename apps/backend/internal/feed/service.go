@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/ctxlog"
 	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 )
@@ -88,14 +89,14 @@ func (s *Service) GetHomeFeed(ctx context.Context, callerID uuid.UUID, cursorStr
 	// Step 2: fetch IDs that the caller has blocked.
 	blockedIDs, err := s.blockProvider.GetBlockedIDs(ctx, callerID)
 	if err != nil {
-		s.log.Error("feed: get blocked ids", zap.Stringer("caller_id", callerID), zap.Error(err))
+		s.log.Error("feed: get blocked ids", ctxlog.RequestIDField(ctx), zap.Stringer("caller_id", callerID), zap.Error(err))
 		return post.PostPage{}, fmt.Errorf("feed: get blocked ids: %w", err)
 	}
 
 	// Step 3: fetch IDs that the caller has muted.
 	mutedIDs, err := s.blockProvider.GetMutedIDs(ctx, callerID)
 	if err != nil {
-		s.log.Error("feed: get muted ids", zap.Stringer("caller_id", callerID), zap.Error(err))
+		s.log.Error("feed: get muted ids", ctxlog.RequestIDField(ctx), zap.Stringer("caller_id", callerID), zap.Error(err))
 		return post.PostPage{}, fmt.Errorf("feed: get muted ids: %w", err)
 	}
 
@@ -104,7 +105,7 @@ func (s *Service) GetHomeFeed(ctx context.Context, callerID uuid.UUID, cursorStr
 		ctx, callerID, blockedIDs, mutedIDs, cursor, maxHomeFeedDepth,
 	)
 	if err != nil {
-		s.log.Error("feed: list home timeline", zap.Stringer("caller_id", callerID), zap.Error(err))
+		s.log.Error("feed: list home timeline", ctxlog.RequestIDField(ctx), zap.Stringer("caller_id", callerID), zap.Error(err))
 		return post.PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
 	}
 

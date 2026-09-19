@@ -310,21 +310,44 @@ The `ip` field in `auth/middleware.go` rate-limit logs contains the client IP ad
 
 ### 5.5 Request ID Propagation
 
-The intended propagation chain:
+**IMPLEMENTED in Phase 7C-5.**
+
+Actual propagation chain:
 
 ```
-HTTP request → chimw.RequestID sets X-Request-ID
-             → chimw.GetReqID(r.Context()) extracts it
-             → Middleware creates a request-scoped zap.Logger with zap.String("request_id", reqID)
-             → Request-scoped logger is stored in context
-             → Handlers and services extract logger from context for log calls
+HTTP request → chimw.RequestID sets X-Request-ID header and stores ID in context
+             → chimw.GetReqID(r.Context()) extracts it (used in access log middleware)
+             → ctxlog.RequestIDField(ctx) wraps the same call as a zap.Field
+             → Targeted service/handler log call sites include ctxlog.RequestIDField(ctx)
+               as an additional field — no function signature changes required
 ```
 
-Implementation note: this requires either:
-- A helper function `LoggerFromContext(ctx) *zap.Logger` that falls back to the global logger if none is set.
-- Or passing the request ID as a field when constructing the per-handler logger at the start of each handler method.
+Helper: `apps/backend/internal/platform/ctxlog/ctxlog.go`
 
-The second approach (no context-stored logger) is simpler and preferred for Phase 7C to avoid touching every service signature.
+```go
+func RequestIDField(ctx context.Context) zap.Field
+```
+
+- Source of ID: `chimw.GetReqID(ctx)` — the same mechanism used by the access log middleware.
+  No new ID-generation logic is introduced.
+- When a request ID is present: returns `zap.String("request_id", id)`.
+- When no request ID is present (background goroutines, tests without chi middleware,
+  startup/shutdown log calls): returns `zap.Skip()`. No empty string is written to the log.
+- No context-stored logger: the existing `*zap.Logger` field on each service/handler is reused.
+  No service method signatures were changed.
+
+Instrumented log call sites (Phase 7C-5):
+
+| File | Method | Log calls updated |
+|---|---|---|
+| `internal/feed/service.go` | `GetHomeFeed` | 3 ERROR calls |
+| `internal/follow/service.go` | `Follow`, `Unfollow` | 3 ERROR/WARN calls |
+| `internal/auth/handler.go` | `handleServiceError`, `logout` | 2 ERROR calls |
+
+Sites intentionally skipped:
+- `auth/service.go`: `Login`, `Refresh`, `Register`, `RevokeAllSessions` — these methods have no zap log calls (they use `s.events` counters and return errors; logging of unexpected errors happens in the handler via `handleServiceError`).
+- `post/service.go`, `report/service.go`, `search/service.go`, `notification/service.go`, etc.: these have `ctx` and `s.log` but are not being modified in this phase to stay within the targeted ~5–10 call site limit. They are candidates for a follow-up pass.
+- Middleware log calls (`access_log.go`): already log `request_id` as a dedicated field — no change needed.
 
 ---
 

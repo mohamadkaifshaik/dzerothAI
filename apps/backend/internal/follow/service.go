@@ -8,6 +8,7 @@ import (
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/ctxlog"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 )
 
@@ -47,7 +48,7 @@ func (s *Service) Follow(ctx context.Context, callerID, targetID uuid.UUID) erro
 
 	blocked, err := s.repo.IsBlockedBy(ctx, callerID, targetID)
 	if err != nil {
-		s.log.Error("follow: is blocked by check", zap.Error(err))
+		s.log.Error("follow: is blocked by check", ctxlog.RequestIDField(ctx), zap.Error(err))
 		return apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
 	}
 	if blocked {
@@ -55,7 +56,7 @@ func (s *Service) Follow(ctx context.Context, callerID, targetID uuid.UUID) erro
 	}
 
 	if err := s.repo.Follow(ctx, callerID, targetID); err != nil {
-		s.log.Error("follow: insert", zap.Error(err))
+		s.log.Error("follow: insert", ctxlog.RequestIDField(ctx), zap.Error(err))
 		return apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
 	}
 
@@ -69,6 +70,7 @@ func (s *Service) Follow(ctx context.Context, callerID, targetID uuid.UUID) erro
 			PostID:      nil,
 		}); pubErr != nil {
 			s.log.Warn("follow: publish notification failed",
+				ctxlog.RequestIDField(ctx),
 				zap.String("caller_id", callerID.String()),
 				zap.String("target_id", targetID.String()),
 				zap.Error(pubErr),
@@ -83,7 +85,7 @@ func (s *Service) Follow(ctx context.Context, callerID, targetID uuid.UUID) erro
 // Returns nil if the follow row did not exist — unfollow is idempotent.
 func (s *Service) Unfollow(ctx context.Context, callerID, targetID uuid.UUID) error {
 	if err := s.repo.Unfollow(ctx, callerID, targetID); err != nil {
-		s.log.Error("follow: unfollow", zap.Error(err))
+		s.log.Error("follow: unfollow", ctxlog.RequestIDField(ctx), zap.Error(err))
 		return apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
 	}
 	return nil

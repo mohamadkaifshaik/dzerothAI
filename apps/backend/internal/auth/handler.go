@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/apierror"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/ctxlog"
 	platformMetrics "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
 
@@ -75,7 +76,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		Password:    body.Password,
 	})
 	if err != nil {
-		h.handleServiceError(w, err)
+		h.handleServiceError(w, r, err)
 		return
 	}
 
@@ -100,7 +101,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		Password: body.Password,
 	})
 	if err != nil {
-		h.handleServiceError(w, err)
+		h.handleServiceError(w, r, err)
 		return
 	}
 
@@ -122,7 +123,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 
 	pair, err := h.svc.Refresh(r.Context(), body.RefreshToken)
 	if err != nil {
-		h.handleServiceError(w, err)
+		h.handleServiceError(w, r, err)
 		return
 	}
 
@@ -157,7 +158,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := DeleteAllUserSessions(r.Context(), h.svc.pool, userID); err != nil {
-		h.log.Error("logout failed", zap.Error(err))
+		h.log.Error("logout failed", ctxlog.RequestIDField(r.Context()), zap.Error(err))
 		apierror.Render(w, http.StatusInternalServerError,
 			apierror.New(apierror.CodeInternal, "An unexpected error occurred."))
 		return
@@ -169,7 +170,8 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 
 // handleServiceError maps service-layer errors to appropriate HTTP responses.
 // Internal errors are logged without sensitive details; only safe messages reach clients.
-func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
+// r is used solely to extract the chi request ID for log correlation.
+func (h *Handler) handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var ve *ValidationError
 	if errors.As(err, &ve) {
 		if len(ve.Details) > 0 {
@@ -212,7 +214,7 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 	}
 
 	// Unexpected internal error — log it, return safe message.
-	h.log.Error("auth: unexpected internal error", zap.Error(err))
+	h.log.Error("auth: unexpected internal error", ctxlog.RequestIDField(r.Context()), zap.Error(err))
 	apierror.Render(w, http.StatusInternalServerError,
 		apierror.New(apierror.CodeInternal, "An unexpected error occurred."))
 }
