@@ -89,6 +89,18 @@ func (s *Service) SetNotificationPublisher(np PostNotificationPublisher) {
 	s.notifier = np
 }
 
+// PostExistsAndNotDeleted returns true when the post exists and has not been
+// soft-deleted. Satisfies the report.PostChecker interface.
+// Any repository error is treated as "not found" (returns false, nil) so that
+// the caller receives a clean not-found signal rather than an internal error.
+func (s *Service) PostExistsAndNotDeleted(ctx context.Context, postID uuid.UUID) (bool, error) {
+	p, err := s.repo.GetByID(ctx, postID)
+	if err != nil {
+		return false, nil
+	}
+	return !p.IsDeleted, nil
+}
+
 // GetPostAuthorID returns the AuthorID of the post identified by postID.
 // Returns a CodeNotFound error if the post does not exist or has been soft-deleted.
 // This method satisfies the reaction.PostAuthorLookup interface.

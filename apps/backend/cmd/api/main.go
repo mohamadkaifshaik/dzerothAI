@@ -37,7 +37,9 @@ import (
 	platformRedis "github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/redis"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/post"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/reaction"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/report"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/search"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/studio"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/user"
 )
 
@@ -146,6 +148,19 @@ func run() error {
 	// (for FeedCursor), so internal/post cannot directly import internal/notification.
 	postSvc.SetNotificationPublisher(&postNotificationAdapter{svc: notifSvc})
 
+	// Phase 5 — Report
+	reportRepo := report.NewRepository(pool)
+	reportSvc := report.NewService(reportRepo, postSvc, userSvc, redisClient, log)
+	reportHandler := report.NewHandler(reportSvc, log)
+
+	// Phase 5 — Studio (Private Creator Studio analytics)
+	studioRepo := studio.NewRepository(pool)
+	studioSvc := studio.NewService(studioRepo, redisClient, log)
+	studioHandler := studio.NewHandler(studioSvc, log)
+
+	// Phase 5 — Self-suspension session revoker: auth.Service satisfies user.SessionRevoker.
+	userSvc.SetSessionRevoker(authSvc)
+
 	authHandler := auth.NewHandler(authSvc, log)
 	userHandler := user.NewHandler(userSvc, log)
 	userHandler.SetBlockChecker(blockSvc)
@@ -183,6 +198,8 @@ func run() error {
 		notifHandler.RegisterRoutes(r, cfg.JWTSecret)
 		reactionHandler.RegisterRoutes(r, cfg.JWTSecret)
 		searchHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
+		reportHandler.RegisterRoutes(r, cfg.JWTSecret)
+		studioHandler.RegisterRoutes(r, cfg.JWTSecret)
 	})
 
 	// ── 9. Start HTTP server ──────────────────────────────────────────────────
