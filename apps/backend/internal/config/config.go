@@ -29,6 +29,11 @@ type Config struct {
 
 	// LogLevel is one of: debug, info, warn, error. Default: "info".
 	LogLevel string
+
+	// CORSAllowedOrigins is the list of exact origins permitted in non-local/test
+	// environments. Parsed from CORS_ALLOWED_ORIGINS (comma-separated). An empty
+	// slice means no cross-origin requests are permitted — the server still starts.
+	CORSAllowedOrigins []string
 }
 
 // Load reads all required and optional environment variables, validates them, and
@@ -78,12 +83,28 @@ func Load() (*Config, error) {
 		pgUser, pgPassword, pgHost, pgPort, pgDB,
 	)
 
+	corsOrigins := parseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
+
 	return &Config{
-		PostgresDSN: dsn,
-		RedisAddr:   redisAddr,
-		JWTSecret:   jwtSecret,
-		APIPort:     optional("API_PORT", "8080"),
-		Environment: optional("ENVIRONMENT", "local"),
-		LogLevel:    optional("LOG_LEVEL", "info"),
+		PostgresDSN:        dsn,
+		RedisAddr:          redisAddr,
+		JWTSecret:          jwtSecret,
+		APIPort:            optional("API_PORT", "8080"),
+		Environment:        optional("ENVIRONMENT", "local"),
+		LogLevel:           optional("LOG_LEVEL", "info"),
+		CORSAllowedOrigins: corsOrigins,
 	}, nil
+}
+
+// parseCORSOrigins splits a comma-separated origin list, trims whitespace, and
+// filters empty strings. Returns an empty (non-nil) slice when the input is blank.
+func parseCORSOrigins(raw string) []string {
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

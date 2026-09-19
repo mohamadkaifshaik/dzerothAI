@@ -182,7 +182,12 @@ func run() error {
 	if cfg.Environment == "local" || cfg.Environment == "test" {
 		r.Use(corsAllowAll)
 	} else {
-		r.Use(corsRestrictive)
+		if len(cfg.CORSAllowedOrigins) == 0 {
+			log.Warn("CORS_ALLOWED_ORIGINS is not set; all cross-origin requests will be blocked")
+		} else {
+			log.Info("cors allowlist configured", zap.Int("origin_count", len(cfg.CORSAllowedOrigins)))
+		}
+		r.Use(corsAllowList(cfg.CORSAllowedOrigins, log))
 	}
 
 	// ── 8. Register routes ────────────────────────────────────────────────────
@@ -364,15 +369,47 @@ func corsAllowAll(next http.Handler) http.Handler {
 	})
 }
 
-// corsRestrictive is a placeholder CORS middleware for production.
-// TODO(production): read allowed origins from config and enforce them.
-// Until explicitly configured, cross-origin requests are not permitted in production.
-func corsRestrictive(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// corsAllowList returns a middleware that enforces an explicit origin allowlist.
+// Only origins in the provided slice receive CORS response headers.
+// Requests without an Origin header, or with a disallowed origin, proceed without
+// any Access-Control-Allow-Origin header — the browser blocks the response.
+// Preflight OPTIONS requests on disallowed origins return 204 with no CORS headers.
+// Access-Control-Allow-Origin: * is never emitted by this middleware.
+// If origins is empty all cross-origin requests are effectively blocked.
+func corsAllowList(origins []string, _ *zap.Logger) func(http.Handler) http.Handler {
+	// Build a set for O(1) lookup.
+	allowedSet := make(map[string]struct{}, len(origins))
+	for _, o := range origins {
+		allowedSet[o] = struct{}{}
+	}
+
+	const (
+		allowMethods = "GET, POST, PUT, DELETE, OPTIONS"
+		allowHeaders = "Authorization, Content-Type, X-Request-ID"
+		maxAge       = "600"
+	)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+
+			_, allowed := allowedSet[origin]
+			if origin != "" && allowed {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+				w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
+				w.Header().Set("Access-Control-Max-Age", maxAge)
+				// Vary: Origin is required so intermediary caches do not serve a
+				// cached CORS response to a different origin.
+				w.Header().Set("Vary", "Origin")
+			}
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
