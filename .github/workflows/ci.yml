@@ -125,6 +125,26 @@ jobs:
           psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM follows"
           psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM schema_migrations"
 
+  race:
+    name: "Go Race Detector"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/backend/go.sum
+
+      - name: Run tests with race detector
+        run: go test -race ./...
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest

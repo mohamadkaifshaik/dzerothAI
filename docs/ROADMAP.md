@@ -133,7 +133,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 - [x] GitHub Actions workflow: go test, go vet, flutter analyze, flutter test, Docker build
 - [x] Migration smoke test (Phase 8B-2)
-- [ ] Race detector job
+- [x] Race-detector CI on Linux (Phase 8B-3)
 - [ ] Deployment pipeline
 
 ## Rule
