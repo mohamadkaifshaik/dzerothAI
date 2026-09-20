@@ -235,11 +235,20 @@ fi
 log_info "Check 2/3: gzip integrity — PASS"
 
 # Check 3: pg_restore can list the archive contents.
-# We decompress on the host and pipe into the container's pg_restore via stdin.
-# Using process substitution to feed stdin from the decompressed dump.
-# The `sh -c` wrapper reads from /dev/stdin inside the container.
+# Decompress on the host and pipe the raw PostgreSQL custom-format archive
+# into the container's pg_restore via stdin.
+#
+# Use `-` (dash) as the archive argument — this tells pg_restore to read from
+# fd 0 (its actual stdin), which docker compose exec -T connects directly to
+# the host pipe. Do NOT use /dev/stdin: in the official postgres Docker image
+# /dev/stdin is a char device node (not a symlink to /proc/self/fd/0), so
+# pg_restore opening it receives no data and fails with "did not find magic
+# string in file header".
+#
+# No `sh -c` wrapper is needed — compose_exec exec's pg_restore directly so
+# its fd 0 IS the forwarded pipe. This matches how pg_restore.sh restores.
 if ! gunzip -c "${TMPFILE}" \
-    | compose_exec sh -c 'pg_restore --list /dev/stdin' > /dev/null; then
+    | compose_exec pg_restore --list - > /dev/null; then
     log_error "pg_restore --list check failed: archive may be corrupt."
     exit 1
 fi

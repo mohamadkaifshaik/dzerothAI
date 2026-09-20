@@ -336,6 +336,48 @@ else
     fail "pg_backup.sh: DOCKER_COMPOSE_BIN error output unexpected (got: ${DCB_OUTPUT})"
 fi
 
+# ── Test 13: pg_restore --list uses `-` (stdin), not /dev/stdin ───────────────
+#
+# Root cause guard: /dev/stdin in the official postgres Docker image is a char
+# device node, NOT a symlink to /proc/self/fd/0. When `pg_restore --list
+# /dev/stdin` is used inside the container via `docker compose exec -T`, the
+# char device returns no data and pg_restore fails with "did not find magic
+# string in file header". The correct form is `pg_restore --list -` which
+# reads from fd 0 (the actual stdin pipe). This test confirms the regression
+# cannot be silently re-introduced.
+echo ""
+echo "=== Test group: pg_restore --list stdin form ==="
+
+# Must NOT use /dev/stdin with pg_restore --list.
+if grep -qE "pg_restore[[:space:]].*--list[[:space:]].*\/dev\/stdin" "${BACKUP_SCRIPT}"; then
+    fail "pg_backup.sh: pg_restore --list must not use /dev/stdin (use - for stdin)"
+else
+    pass "pg_backup.sh: pg_restore --list does not use /dev/stdin"
+fi
+
+# Must use `pg_restore --list -` (dash = fd 0) for stdin.
+if grep -qE "pg_restore[[:space:]].*--list[[:space:]]+-[[:space:]]*>" "${BACKUP_SCRIPT}" || \
+   grep -qE "pg_restore --list -" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: pg_restore --list uses - (stdin fd 0)"
+else
+    fail "pg_backup.sh: pg_restore --list must pass - as the archive argument for stdin"
+fi
+
+# Must use gunzip (or gzip -dc) to decompress before pg_restore --list.
+# grep for lines that contain gunzip or gzip -d within 5 lines before pg_restore --list.
+if grep -q "gunzip\|gzip -d" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: integrity check includes gunzip/gzip decompression"
+else
+    fail "pg_backup.sh: integrity check must decompress before pg_restore --list"
+fi
+
+# Must NOT wrap pg_restore in an unnecessary sh -c for the --list check.
+if grep -qE "sh[[:space:]]+-c[[:space:]]+'?\"?pg_restore[[:space:]]+--list" "${BACKUP_SCRIPT}"; then
+    fail "pg_backup.sh: pg_restore --list must not be wrapped in sh -c"
+else
+    pass "pg_backup.sh: pg_restore --list is not wrapped in sh -c"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "========================================"
