@@ -336,46 +336,71 @@ else
     fail "pg_backup.sh: DOCKER_COMPOSE_BIN error output unexpected (got: ${DCB_OUTPUT})"
 fi
 
-# ── Test 13: pg_restore --list uses `-` (stdin), not /dev/stdin ───────────────
+# ── Test 13: pg_restore --list validation correctness ──────────────────────────
 #
-# Root cause guard: /dev/stdin in the official postgres Docker image is a char
-# device node, NOT a symlink to /proc/self/fd/0. When `pg_restore --list
-# /dev/stdin` is used inside the container via `docker compose exec -T`, the
-# char device returns no data and pg_restore fails with "did not find magic
-# string in file header". The correct form is `pg_restore --list -` which
-# reads from fd 0 (the actual stdin pipe). This test confirms the regression
-# cannot be silently re-introduced.
+# Guards against three known broken patterns and confirms the file-based
+# approach is in place.
+#
+# Broken pattern A (/dev/stdin):
+#   /dev/stdin in the official postgres Docker image is a char device node,
+#   NOT a symlink to /proc/self/fd/0. pg_restore opening it receives no bytes
+#   and fails with "did not find magic string in file header".
+#
+# Broken pattern B (pg_restore --list -):
+#   PostgreSQL 15.4 in this container treats `-` as a literal filename, not
+#   a stdin sentinel. Fails with "could not open input file '-'".
+#
+# Broken pattern C (sh -c 'pg_restore --list ...'):
+#   Unnecessary shell wrapper that obscures the stdin forwarding behaviour.
+#
+# Correct approach: decompress to a host temp file, docker cp into the
+# container, run pg_restore --list against the real container-local path.
 echo ""
-echo "=== Test group: pg_restore --list stdin form ==="
+echo "=== Test group: pg_restore --list validation approach ==="
 
-# Must NOT use /dev/stdin with pg_restore --list.
-if grep -qE "pg_restore[[:space:]].*--list[[:space:]].*\/dev\/stdin" "${BACKUP_SCRIPT}"; then
-    fail "pg_backup.sh: pg_restore --list must not use /dev/stdin (use - for stdin)"
+# Must NOT use /dev/stdin — char device, not a pipe (broken pattern A).
+# Exclude comment lines (lines whose first non-whitespace character is #).
+DEVSTDIN_LINES="$(grep -nE "pg_restore[[:space:]].*--list[[:space:]].*\/dev\/stdin" \
+    "${BACKUP_SCRIPT}" | grep -v "^[0-9]*:[[:space:]]*#" || true)"
+if [[ -n "${DEVSTDIN_LINES}" ]]; then
+    fail "pg_backup.sh: pg_restore --list must not use /dev/stdin (found: ${DEVSTDIN_LINES})"
 else
     pass "pg_backup.sh: pg_restore --list does not use /dev/stdin"
 fi
 
-# Must use `pg_restore --list -` (dash = fd 0) for stdin.
-if grep -qE "pg_restore[[:space:]].*--list[[:space:]]+-[[:space:]]*>" "${BACKUP_SCRIPT}" || \
-   grep -qE "pg_restore --list -" "${BACKUP_SCRIPT}"; then
-    pass "pg_backup.sh: pg_restore --list uses - (stdin fd 0)"
+# Must NOT use pg_restore --list - — PG 15.4 treats '-' as a filename (broken pattern B).
+if grep -qE "pg_restore[[:space:]]+--list[[:space:]]+-([[:space:]]|$)" "${BACKUP_SCRIPT}"; then
+    fail "pg_backup.sh: pg_restore --list must not use - (broken in PG 15.4 container)"
 else
-    fail "pg_backup.sh: pg_restore --list must pass - as the archive argument for stdin"
+    pass "pg_backup.sh: pg_restore --list does not use - as stdin sentinel"
 fi
 
-# Must use gunzip (or gzip -dc) to decompress before pg_restore --list.
-# grep for lines that contain gunzip or gzip -d within 5 lines before pg_restore --list.
-if grep -q "gunzip\|gzip -d" "${BACKUP_SCRIPT}"; then
-    pass "pg_backup.sh: integrity check includes gunzip/gzip decompression"
-else
-    fail "pg_backup.sh: integrity check must decompress before pg_restore --list"
-fi
-
-# Must NOT wrap pg_restore in an unnecessary sh -c for the --list check.
+# Must NOT wrap pg_restore --list in sh -c (broken pattern C).
 if grep -qE "sh[[:space:]]+-c[[:space:]]+'?\"?pg_restore[[:space:]]+--list" "${BACKUP_SCRIPT}"; then
     fail "pg_backup.sh: pg_restore --list must not be wrapped in sh -c"
 else
     pass "pg_backup.sh: pg_restore --list is not wrapped in sh -c"
+fi
+
+# Must use docker cp to transfer the archive into the container (file-based approach).
+if grep -q "docker cp" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: docker cp is used to transfer archive into container for validation"
+else
+    fail "pg_backup.sh: docker cp must be used for file-based pg_restore validation"
+fi
+
+# Must use gunzip or gzip -d to decompress before validation.
+if grep -q "gunzip\|gzip -d" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: gunzip/gzip decompression is present before pg_restore --list"
+else
+    fail "pg_backup.sh: decompression must precede pg_restore --list"
+fi
+
+# Container temp file must be cleaned up inside the script.
+if grep -q "rm -f.*VALIDATE_CONTAINER_TMP\|VALIDATE_CONTAINER_TMP.*rm" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: container validation temp file is cleaned up"
+else
+    fail "pg_backup.sh: container validation temp file cleanup is missing"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

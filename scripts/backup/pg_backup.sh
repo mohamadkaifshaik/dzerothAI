@@ -160,12 +160,30 @@ FILENAME="dzeroth_${TIMESTAMP}.dump.gz"
 TMPFILE="${BACKUP_DIR}/${FILENAME}.tmp"
 FINALFILE="${BACKUP_DIR}/${FILENAME}"
 
+# Validation temp resource paths — declared before the EXIT trap so cleanup()
+# can reference them safely regardless of which step the script exits at.
+# Set to non-empty only when the corresponding resource has been created.
+VALIDATE_HOST_TMP=""
+VALIDATE_CONTAINER_TMP=""
+CONTAINER_ID_VALIDATE=""
+
 # ── Trap: remove temp file on error or signal ─────────────────────────────────
 cleanup() {
     local exit_code=$?
     if [[ -f "${TMPFILE}" ]]; then
         log_error "Removing incomplete temp file: ${TMPFILE}"
         rm -f "${TMPFILE}"
+    fi
+    # Remove host-side decompressed validation temp file if still present.
+    if [[ -n "${VALIDATE_HOST_TMP}" ]] && [[ -f "${VALIDATE_HOST_TMP}" ]]; then
+        rm -f "${VALIDATE_HOST_TMP}" 2>/dev/null || true
+    fi
+    # Remove container-side validation temp file if it was copied in.
+    # Uses `docker exec` directly (core CLI, always on PATH for root) rather
+    # than compose_exec, which is defined later in the script.
+    if [[ -n "${CONTAINER_ID_VALIDATE}" ]] && [[ -n "${VALIDATE_CONTAINER_TMP}" ]]; then
+        docker exec "${CONTAINER_ID_VALIDATE}" \
+            rm -f "${VALIDATE_CONTAINER_TMP}" 2>/dev/null || true
     fi
     if [[ ${exit_code} -ne 0 ]]; then
         log_error "Backup failed (exit code ${exit_code}). No partial file remains."
@@ -235,23 +253,53 @@ fi
 log_info "Check 2/3: gzip integrity — PASS"
 
 # Check 3: pg_restore can list the archive contents.
-# Decompress on the host and pipe the raw PostgreSQL custom-format archive
-# into the container's pg_restore via stdin.
 #
-# Use `-` (dash) as the archive argument — this tells pg_restore to read from
-# fd 0 (its actual stdin), which docker compose exec -T connects directly to
-# the host pipe. Do NOT use /dev/stdin: in the official postgres Docker image
-# /dev/stdin is a char device node (not a symlink to /proc/self/fd/0), so
-# pg_restore opening it receives no data and fails with "did not find magic
-# string in file header".
+# Both stdin approaches are broken in this environment:
+#   - `pg_restore --list -`         PG 15.4 treats "-" as a filename, not stdin.
+#                                   Error: "could not open input file '-'"
+#   - `pg_restore --list /dev/stdin` /dev/stdin in the postgres image is a
+#                                   char device node, not a pipe. Error:
+#                                   "did not find magic string in file header"
 #
-# No `sh -c` wrapper is needed — compose_exec exec's pg_restore directly so
-# its fd 0 IS the forwarded pipe. This matches how pg_restore.sh restores.
-if ! gunzip -c "${TMPFILE}" \
-    | compose_exec pg_restore --list - > /dev/null; then
+# Deterministic solution: give pg_restore a real, seekable file on the
+# container's own filesystem.
+#   1. Decompress TMPFILE to a host temp file (in BACKUP_DIR, mode 0600).
+#   2. `docker cp` copies it into the container — uses the Docker daemon API
+#      directly, bypasses exec stdin entirely.
+#   3. `compose_exec pg_restore --list <container-path>` validates the archive.
+#   4. Container and host temp files are removed. Both are also tracked in the
+#      EXIT trap so they are cleaned up if the script is interrupted.
+log_info "Decompressing archive for validation..."
+
+VALIDATE_HOST_TMP="$(mktemp "${BACKUP_DIR}/dzeroth_validate_XXXXXX.dump")"
+chmod 600 "${VALIDATE_HOST_TMP}"
+VALIDATE_CONTAINER_TMP="/tmp/dzeroth_validate_$$.dump"
+
+gunzip -c "${TMPFILE}" > "${VALIDATE_HOST_TMP}"
+
+CONTAINER_ID_VALIDATE="$("${DOCKER_COMPOSE_CMD}" -f "${COMPOSE_FILE}" \
+    ps -q "${POSTGRES_SERVICE}")"
+if [[ -z "${CONTAINER_ID_VALIDATE}" ]]; then
+    log_error "Could not determine postgres container ID for validation."
+    exit 1
+fi
+
+log_info "Copying decompressed archive into container (${VALIDATE_CONTAINER_TMP})..."
+docker cp "${VALIDATE_HOST_TMP}" \
+    "${CONTAINER_ID_VALIDATE}:${VALIDATE_CONTAINER_TMP}"
+
+# Host copy no longer needed — remove it immediately.
+rm -f "${VALIDATE_HOST_TMP}"
+VALIDATE_HOST_TMP=""
+
+if ! compose_exec pg_restore --list "${VALIDATE_CONTAINER_TMP}" > /dev/null; then
     log_error "pg_restore --list check failed: archive may be corrupt."
     exit 1
 fi
+
+compose_exec rm -f "${VALIDATE_CONTAINER_TMP}"
+VALIDATE_CONTAINER_TMP=""
+CONTAINER_ID_VALIDATE=""
 log_info "Check 3/3: pg_restore --list — PASS"
 
 # ── Atomic rename ─────────────────────────────────────────────────────────────
