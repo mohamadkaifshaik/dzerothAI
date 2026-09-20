@@ -148,6 +148,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [x] Live PostgreSQL integration tests: connectivity, migrations idempotency, user CRUD, session CRUD, constraint enforcement (Phase 8D-1)
 - [x] Live Redis integration tests: connectivity, auth rejection, rate-limit key behavior (SetNX/Incr/Expire), key isolation, window expiry (Phase 8D-1)
 - [x] `integration` job added to CI (bitnami/redis with requirepass, postgis:15-3.3) (Phase 8D-1)
+- [x] API-level integration tests against real httptest.Server: register/login/GET-me flow, logout invalidates refresh, refresh valid/invalid, refresh rate-limit 429 + Retry-After, health/livez/readyz, request-ID, JWT failure WARN log, CORS allow-all and allowlist, error envelope format, PostgreSQL+HTTP chain, Redis rate-limit state created (Phase 8D-2)
 
 ## Rule
 
