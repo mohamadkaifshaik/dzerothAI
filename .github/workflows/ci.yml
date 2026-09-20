@@ -165,15 +165,14 @@ jobs:
           - 5432:5432
 
       redis:
-        # bitnami/redis supports REDIS_PASSWORD env var to set requirepass at startup.
-        # The official redis:7-alpine image does not support password configuration via
-        # env var — GitHub Actions service containers cannot override the container
-        # command, so bitnami/redis is used here instead of redis:7-alpine.
-        image: bitnami/redis:7.0
-        env:
-          REDIS_PASSWORD: ciredispassword
+        # Official redis:7-alpine does not support REDIS_PASSWORD via env var.
+        # The GitHub Actions services YAML has no command-override field, so
+        # requirepass cannot be set at container-start time via env.
+        # The container starts passwordless; requirepass is set in the
+        # "Configure Redis authentication" workflow step before the tests run.
+        image: redis:7-alpine
         options: >-
-          --health-cmd "redis-cli -a ciredispassword ping"
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -193,6 +192,24 @@ jobs:
         with:
           go-version: '1.26'
           cache: true
+
+      - name: Configure Redis authentication
+        # Set requirepass after the service container is healthy.
+        # ubuntu-latest runners include redis-tools (redis-cli).
+        run: redis-cli -h 127.0.0.1 config set requirepass ciredispassword
+
+      - name: Verify Redis authentication is enforced
+        # Regression guard: unauthenticated ping must be rejected and
+        # authenticated ping must return PONG before the Go tests run.
+        run: |
+          UNAUTH="$(redis-cli -h 127.0.0.1 ping 2>&1)" || true
+          if echo "${UNAUTH}" | grep -q "^PONG"; then
+            echo "ERROR: Redis accepted unauthenticated ping — requirepass not active"
+            exit 1
+          fi
+          echo "OK: Unauthenticated access rejected (got: ${UNAUTH})"
+          redis-cli -h 127.0.0.1 -a ciredispassword ping 2>/dev/null | grep -q PONG
+          echo "OK: Authenticated ping returned PONG"
 
       - name: Run integration tests
         env:
