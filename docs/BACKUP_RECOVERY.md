@@ -46,7 +46,7 @@ EC2 host (dzeroth-production, ap-south-2)
   │     ├── redis     (port 6379 NOT host-exposed)
   │     └── api       (127.0.0.1:8080)
   │
-  ├── /opt/dzeroth/scripts/backup/pg_backup.sh
+  ├── /home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
   │     │
   │     ├── docker compose exec -T postgres pg_dump ...
   │     │     └── pg_dump runs INSIDE the postgres container
@@ -73,13 +73,13 @@ does not need `psql` or `pg_dump` installed.
 
 ## Backup script
 
-`/opt/dzeroth/scripts/backup/pg_backup.sh`
+`/home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh`
 
 Make executable after cloning or pulling:
 
 ```bash
-chmod +x /opt/dzeroth/scripts/backup/pg_backup.sh
-chmod +x /opt/dzeroth/scripts/backup/pg_restore.sh
+chmod +x /home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
+chmod +x /home/ec2-user/dzerothAI/scripts/backup/pg_restore.sh
 ```
 
 ### Configuration variables (all have defaults)
@@ -222,8 +222,8 @@ over a user crontab because:
 ### Installation
 
 ```bash
-sudo cp /opt/dzeroth/deploy/systemd/dzeroth-backup.service /etc/systemd/system/
-sudo cp /opt/dzeroth/deploy/systemd/dzeroth-backup.timer   /etc/systemd/system/
+sudo cp /home/ec2-user/dzerothAI/deploy/systemd/dzeroth-backup.service /etc/systemd/system/
+sudo cp /home/ec2-user/dzerothAI/deploy/systemd/dzeroth-backup.timer   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now dzeroth-backup.timer
 ```
@@ -259,7 +259,7 @@ sudo systemctl start dzeroth-backup.service
 sudo journalctl -u dzeroth-backup.service -f
 
 # Or run the script directly
-sudo /opt/dzeroth/scripts/backup/pg_backup.sh
+sudo /home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
 ```
 
 ---
@@ -271,7 +271,7 @@ sudo /opt/dzeroth/scripts/backup/pg_backup.sh
 The API must be stopped before restoring to prevent data races:
 
 ```bash
-docker compose -f /opt/dzeroth/docker-compose.prod.yml stop api
+docker compose -f /home/ec2-user/dzerothAI/docker-compose.prod.yml stop api
 ```
 
 ### Identify the backup file to restore
@@ -294,11 +294,11 @@ aws s3 cp \
 
 ```bash
 # Interactive (prompts "Type 'yes' to proceed")
-sudo /opt/dzeroth/scripts/backup/pg_restore.sh \
+sudo /home/ec2-user/dzerothAI/scripts/backup/pg_restore.sh \
   /var/backups/dzeroth/dzeroth_<timestamp>.dump.gz
 
 # Non-interactive (automation, staging drills)
-sudo /opt/dzeroth/scripts/backup/pg_restore.sh --confirm \
+sudo /home/ec2-user/dzerothAI/scripts/backup/pg_restore.sh --confirm \
   /var/backups/dzeroth/dzeroth_<timestamp>.dump.gz
 ```
 
@@ -313,16 +313,16 @@ The restore script:
 
 ```bash
 # Verify migration state
-docker compose -f /opt/dzeroth/docker-compose.prod.yml exec postgres \
+docker compose -f /home/ec2-user/dzerothAI/docker-compose.prod.yml exec postgres \
   psql -U dzeroth -d dzeroth \
   -c "SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 1;"
 # Expected: latest version, dirty = f
 
 # Restart the API
-IMAGE_TAG=<tag> docker compose -f /opt/dzeroth/docker-compose.prod.yml up -d api
+IMAGE_TAG=<tag> docker compose -f /home/ec2-user/dzerothAI/docker-compose.prod.yml up -d api
 
 # Verify readiness
-docker exec $(docker compose -f /opt/dzeroth/docker-compose.prod.yml ps -q api) \
+docker exec $(docker compose -f /home/ec2-user/dzerothAI/docker-compose.prod.yml ps -q api) \
   wget -qO- http://localhost:9091/readyz
 # Expected: {"status":"ready"}
 
@@ -351,13 +351,13 @@ Perform this drill monthly to confirm backups are restorable.
 
 3. Stop the staging API:
    ```bash
-   docker compose -f /opt/dzeroth/docker-compose.staging.yml stop api
+   docker compose -f /home/ec2-user/dzerothAI/docker-compose.staging.yml stop api
    ```
 
 4. Run the restore against the staging database:
    ```bash
-   COMPOSE_FILE=/opt/dzeroth/docker-compose.staging.yml \
-   sudo /opt/dzeroth/scripts/backup/pg_restore.sh --confirm \
+   COMPOSE_FILE=/home/ec2-user/dzerothAI/docker-compose.staging.yml \
+   sudo /home/ec2-user/dzerothAI/scripts/backup/pg_restore.sh --confirm \
      /tmp/restore-drill.dump.gz
    ```
    Note: You must also point `POSTGRES_DB`/`POSTGRES_USER` at the staging values
@@ -365,7 +365,7 @@ Perform this drill monthly to confirm backups are restorable.
 
 5. Restart the staging API:
    ```bash
-   IMAGE_TAG=<tag> docker compose -f /opt/dzeroth/docker-compose.staging.yml up -d api
+   IMAGE_TAG=<tag> docker compose -f /home/ec2-user/dzerothAI/docker-compose.staging.yml up -d api
    ```
 
 6. Verify health and a known data record.
@@ -411,7 +411,7 @@ or use AWS CloudWatch to monitor S3 put operations.
 ## Test suite
 
 ```bash
-bash /opt/dzeroth/scripts/backup/test_backup.sh
+bash /home/ec2-user/dzerothAI/scripts/backup/test_backup.sh
 ```
 
 Tests shell syntax, argument validation, trap behavior, secrets file detection,

@@ -24,15 +24,15 @@ PostgreSQL backup job.
 ## Installation on the EC2 instance
 
 ```bash
-# Ensure the repository is at /opt/dzeroth
-ls /opt/dzeroth/scripts/backup/pg_backup.sh
+# Ensure the repository is at /home/ec2-user/dzerothAI
+ls /home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
 
 # Make the backup script executable
-chmod +x /opt/dzeroth/scripts/backup/pg_backup.sh
+chmod +x /home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
 
 # Copy unit files to systemd
-sudo cp /opt/dzeroth/deploy/systemd/dzeroth-backup.service /etc/systemd/system/
-sudo cp /opt/dzeroth/deploy/systemd/dzeroth-backup.timer   /etc/systemd/system/
+sudo cp /home/ec2-user/dzerothAI/deploy/systemd/dzeroth-backup.service /etc/systemd/system/
+sudo cp /home/ec2-user/dzerothAI/deploy/systemd/dzeroth-backup.timer   /etc/systemd/system/
 
 # Reload systemd unit definitions
 sudo systemctl daemon-reload
@@ -68,8 +68,8 @@ sudo systemctl status dzeroth-backup.service
 If the unit files change (e.g. after a `git pull`):
 
 ```bash
-sudo cp /opt/dzeroth/deploy/systemd/dzeroth-backup.service /etc/systemd/system/
-sudo cp /opt/dzeroth/deploy/systemd/dzeroth-backup.timer   /etc/systemd/system/
+sudo cp /home/ec2-user/dzerothAI/deploy/systemd/dzeroth-backup.service /etc/systemd/system/
+sudo cp /home/ec2-user/dzerothAI/deploy/systemd/dzeroth-backup.timer   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl restart dzeroth-backup.timer
 ```

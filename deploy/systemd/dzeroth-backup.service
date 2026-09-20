@@ -10,8 +10,8 @@ User=root
 # Repository root. The backup script resolves its path relative to its own
 # location (SCRIPT_DIR), so WorkingDirectory is informational here but ensures
 # any relative paths in the environment resolve correctly.
-WorkingDirectory=/opt/dzeroth
-ExecStart=/opt/dzeroth/scripts/backup/pg_backup.sh
+WorkingDirectory=/home/ec2-user/dzerothAI
+ExecStart=/home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
 # No AWS credentials are set here — the EC2 IAM role (DzerothProductionBackupRole)
 # provides them via the instance metadata service (IMDS). The AWS CLI picks them
 # up automatically. Do not add AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY here.
