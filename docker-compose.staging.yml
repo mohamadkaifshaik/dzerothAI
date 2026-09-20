@@ -56,8 +56,12 @@ services:
     env_file:
       - deploy/secrets/env.staging
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-dzeroth_staging}
-      POSTGRES_USER: ${POSTGRES_USER:-dzeroth}
+      # Hardcoded — not interpolated from host environment.
+      # Docker Compose auto-loads .env from the project root, which can override
+      # ${VAR:-default} expressions before they reach the container. Using literal
+      # values here prevents the host dev .env from contaminating staging init.
+      POSTGRES_DB: dzeroth_staging
+      POSTGRES_USER: dzeroth
       # POSTGRES_PASSWORD is loaded from env_file — never set here.
     # No ports: block. PostgreSQL is only reachable on the private backend network.
     networks:
@@ -65,7 +69,7 @@ services:
     volumes:
       - pgdata_staging:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dzeroth} -d ${POSTGRES_DB:-dzeroth_staging}"]
+      test: ["CMD-SHELL", "pg_isready -U dzeroth -d dzeroth_staging"]
       interval: 10s
       timeout: 5s
       retries: 10
