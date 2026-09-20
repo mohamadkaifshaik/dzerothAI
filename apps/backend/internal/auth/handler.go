@@ -48,9 +48,15 @@ func (h *Handler) RegisterRoutes(r chi.Router, redisClient *rdb.Client, jwtSecre
 		Window:      time.Hour,
 	}, h.log, h.events)
 
+	refreshRL := RateLimitMiddleware(redisClient, RateLimitConfig{
+		Operation:   "refresh",
+		MaxAttempts: 20,
+		Window:      15 * time.Minute,
+	}, h.log, h.events)
+
 	r.With(registerRL).Post("/auth/register", h.register)
 	r.With(loginRL).Post("/auth/login", h.login)
-	r.Post("/auth/refresh", h.refresh)
+	r.With(refreshRL).Post("/auth/refresh", h.refresh)
 	r.With(JWTMiddleware(jwtSecret, h.log)).Post("/auth/logout", h.logout)
 }
 

@@ -259,6 +259,8 @@ func rateLimitCategory(operation string) string {
 		return platformMetrics.RateLimitCategoryAuthLogin
 	case "register":
 		return platformMetrics.RateLimitCategoryAuthRegister
+	case "refresh":
+		return platformMetrics.RateLimitCategoryAuthRefresh
 	default:
 		return "auth_" + operation
 	}

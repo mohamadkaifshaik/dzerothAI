@@ -23,8 +23,8 @@ import "github.com/prometheus/client_golang/prometheus"
 // a non-nil value when counters are not needed (e.g., unit tests that do
 // not exercise metrics).
 type Events struct {
-	authEvents      *prometheus.CounterVec
-	rateLimitEvents *prometheus.CounterVec
+	authEvents       *prometheus.CounterVec
+	rateLimitEvents  *prometheus.CounterVec
 	feedTerminations *prometheus.CounterVec
 }
 
@@ -39,7 +39,7 @@ type Events struct {
 //
 //	dzeroth_rate_limit_events_total{category,result}
 //	  result:   allowed | rejected
-//	  category: auth_login | auth_register | post_write | follow | block |
+//	  category: auth_login | auth_register | auth_refresh | post_write | follow | block |
 //	            bookmark | search | reaction | report | studio
 //
 //	dzeroth_feed_terminations_total{feed_type}
@@ -84,11 +84,11 @@ func NewEvents(reg prometheus.Registerer) *Events {
 // --- Authentication event constants ---
 
 const (
-	AuthEventLoginSuccess          = "login_success"
-	AuthEventLoginFailure          = "login_failure"
-	AuthEventTokenRefreshSuccess   = "token_refresh_success"
-	AuthEventTokenRefreshFailure   = "token_refresh_failure"
-	AuthEventLogout                = "logout"
+	AuthEventLoginSuccess        = "login_success"
+	AuthEventLoginFailure        = "login_failure"
+	AuthEventTokenRefreshSuccess = "token_refresh_success"
+	AuthEventTokenRefreshFailure = "token_refresh_failure"
+	AuthEventLogout              = "logout"
 )
 
 // --- Rate-limit category constants ---
@@ -96,6 +96,7 @@ const (
 const (
 	RateLimitCategoryAuthLogin    = "auth_login"
 	RateLimitCategoryAuthRegister = "auth_register"
+	RateLimitCategoryAuthRefresh  = "auth_refresh"
 	RateLimitCategoryPostWrite    = "post_write"
 	RateLimitCategoryFollow       = "follow"
 	RateLimitCategoryBlock        = "block"
