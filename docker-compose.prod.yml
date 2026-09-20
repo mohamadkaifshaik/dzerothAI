@@ -1,0 +1,115 @@
+# Dzeroth — Production Docker Compose topology
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   1. Build the API image: see apps/backend/Dockerfile
+#      docker build -f apps/backend/Dockerfile apps/backend/ \
+#        --build-arg VERSION=<tag> \
+#        --build-arg COMMIT=<sha> \
+#        --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+#        -t dzeroth-api:<tag>
+#   2. Create deploy/secrets/env.production from deploy/env.production.example.
+#      Never commit deploy/secrets/.
+#   3. Set IMAGE_TAG to the desired release tag before running.
+#
+# Security topology (see docs/DEPLOYMENT_TOPOLOGY.md):
+#   - PostgreSQL and Redis are on a private network and are NOT exposed to the host.
+#   - The admin/observability port (:9091) is NOT exposed beyond the private network.
+#     Mount a sidecar or use `docker exec` to access metrics/health on production hosts.
+#   - Only the public API port (8080) is exposed. Place a TLS-terminating reverse proxy
+#     (nginx, Caddy, or a cloud load balancer) in front of port 8080.
+#   - CORS_ALLOWED_ORIGINS must be set to your exact frontend origin(s).
+#   - POSTGRES_SSL_MODE should be 'require' or 'verify-full' for managed PostgreSQL.
+#   - REDIS_TLS should be 'true' for managed Redis (e.g. Redis Cloud, ElastiCache TLS).
+
+services:
+
+  # ── API ───────────────────────────────────────────────────────────────────────
+  api:
+    image: dzeroth-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - deploy/secrets/env.production
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_ADDR: "redis:6379"
+      ENVIRONMENT: production
+    ports:
+      # Public API. Place a TLS-terminating reverse proxy in front.
+      # The API itself speaks plain HTTP; TLS is terminated at the proxy.
+      - "8080:8080"
+      # Admin port (metrics, livez, readyz) is intentionally NOT published here.
+      # Access it within the private network from a monitoring sidecar or
+      # via `docker exec ... wget -qO- http://localhost:9091/metrics`.
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # The Dockerfile HEALTHCHECK covers /health on 8080.
+    # For orchestrators that override HEALTHCHECK, replicate the same check.
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:15-3.3
+    restart: unless-stopped
+    env_file:
+      - deploy/secrets/env.production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dzeroth}
+      POSTGRES_USER: ${POSTGRES_USER:-dzeroth}
+      # POSTGRES_PASSWORD is loaded from env_file — never set here.
+    # No ports: block. PostgreSQL is only reachable on the private backend network.
+    networks:
+      - backend
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dzeroth} -d ${POSTGRES_DB:-dzeroth}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Launch with requirepass from the command line so the password never appears
+    # in environment variable listings. The value is read from the secret file by
+    # the shell substitution below — supply REDIS_PASSWORD in the host environment
+    # or via `--env-file deploy/secrets/env.production` before running compose.
+    command: >
+      sh -c 'redis-server --requirepass "$$REDIS_PASSWORD"'
+    env_file:
+      - deploy/secrets/env.production
+    # No ports: block. Redis is only reachable on the private backend network.
+    networks:
+      - backend
+    volumes:
+      - redisdata_prod:/data
+    healthcheck:
+      # Use AUTH in the healthcheck ping when a password is required.
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  backend:
+    driver: bridge
+    # internal: true would block all outbound internet access from containers.
+    # Leave off unless the API has no outbound HTTP dependencies (e.g. media CDN).
+    internal: false
+
+volumes:
+  pgdata_prod:
+    driver: local
+  redisdata_prod:
+    driver: local

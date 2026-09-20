@@ -1,0 +1,98 @@
+# Dzeroth — Staging Docker Compose topology
+#
+# Usage:
+#   docker compose -f docker-compose.staging.yml up -d
+#
+# Staging mirrors the production topology with two intentional differences:
+#   1. The admin port (:9091) is bound to 127.0.0.1 only so that it is
+#      reachable by engineers SSH-tunnelling into the staging host without
+#      being publicly accessible.
+#   2. LOG_LEVEL defaults to 'debug' to aid integration testing.
+#
+# Prerequisites:
+#   1. Build the API image (same command as production, different tag).
+#   2. Create deploy/secrets/env.staging from deploy/env.staging.example.
+#      Never commit deploy/secrets/.
+#   3. Set IMAGE_TAG before running.
+
+services:
+
+  # ── API ───────────────────────────────────────────────────────────────────────
+  api:
+    image: dzeroth-api:${IMAGE_TAG:-staging}
+    restart: unless-stopped
+    env_file:
+      - deploy/secrets/env.staging
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_ADDR: "redis:6379"
+      ENVIRONMENT: staging
+      LOG_LEVEL: debug
+    ports:
+      # Public API — place a TLS-terminating reverse proxy in front.
+      - "8080:8080"
+      # Admin port bound to loopback only.
+      # Engineers can SSH-tunnel: ssh -L 9091:localhost:9091 staging-host
+      # then curl http://localhost:9091/metrics or /livez locally.
+      - "127.0.0.1:9091:9091"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:15-3.3
+    restart: unless-stopped
+    env_file:
+      - deploy/secrets/env.staging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dzeroth_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-dzeroth}
+      # POSTGRES_PASSWORD is loaded from env_file — never set here.
+    # No ports: block. PostgreSQL is only reachable on the private backend network.
+    networks:
+      - backend
+    volumes:
+      - pgdata_staging:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dzeroth} -d ${POSTGRES_DB:-dzeroth_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      sh -c 'redis-server --requirepass "$$REDIS_PASSWORD"'
+    env_file:
+      - deploy/secrets/env.staging
+    # No ports: block. Redis is only reachable on the private backend network.
+    networks:
+      - backend
+    volumes:
+      - redisdata_staging:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  backend:
+    driver: bridge
+    internal: false
+
+volumes:
+  pgdata_staging:
+    driver: local
+  redisdata_staging:
+    driver: local

@@ -6,6 +6,10 @@
 # Allow the example template — it contains only placeholder values
 !.env.example
 
+# Deployment secrets — the deploy/secrets/ directory is self-gitignored,
+# but add an explicit root-level guard as a safety net.
+deploy/secrets/env.*
+
 # Claude Code local session settings
 .claude/settings.local.json
 
