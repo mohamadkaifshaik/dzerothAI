@@ -1,34 +1,129 @@
-# Environment Strategy
+# Dzeroth — Environment Strategy
 
-**Status:** `BASELINE — VERIFY DURING AUDIT`
+**Status:** `VERIFIED — Phase 8C`
 
-Do not invent environment variables. First inspect the repository, deployment configuration, Docker files, CI files, and application configuration.
+This document records the authoritative environment variable definitions and
+the separation strategy between local, test/CI, staging, and production
+environments. All variables listed here have been verified in
+`apps/backend/internal/config/config.go`.
 
-## Required environment separation
+---
 
-At minimum, distinguish:
+## Environment names
 
-- local development
-- test/CI
-- staging
-- production
+| Value | Used by | Behaviour |
+|---|---|---|
+| `local` | Developer workstations | CORS: allow all origins. Logger: development (colored, human-readable). |
+| `test` | CI / automated tests | CORS: allow all origins. Logger: development. |
+| `staging` | Staging host | CORS: explicit allowlist (`CORS_ALLOWED_ORIGINS`). Logger: production (JSON). |
+| `production` | Production host | CORS: explicit allowlist. Logger: production (JSON). |
 
-## Rules
+`ENVIRONMENT` defaults to `local` when unset. Non-local/test environments log a
+startup warning if `CORS_ALLOWED_ORIGINS` is empty.
 
-- Secrets must never be committed.
-- Production secrets must come from an approved secret-management mechanism.
-- Local `.env` files must be ignored by Git if used.
-- Configuration names must have one authoritative definition.
-- Avoid environment-specific code paths when configuration can solve the difference safely.
-- Document required variables only after verifying them in code.
-- Never paste real credentials into documentation or agent prompts.
+In `docker-compose.staging.yml` and `docker-compose.prod.yml`, `ENVIRONMENT` is
+hardcoded in the compose `environment:` block (`staging`/`production`) and
+cannot be accidentally overridden by the `env_file`.
 
-## Audit checklist
+---
 
-- [ ] Find all environment variable reads.
-- [ ] Find all `.env`/configuration files.
-- [ ] Find Docker/Compose configuration.
-- [ ] Find CI/CD configuration.
-- [ ] Identify secrets and credential references.
-- [ ] Identify missing validation for required configuration.
-- [ ] Establish staging/production configuration separately.
+## All environment variables
+
+Authoritative source: `apps/backend/internal/config/config.go`.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `POSTGRES_USER` | Yes | — | PostgreSQL user |
+| `POSTGRES_PASSWORD` | Yes | — | PostgreSQL password (secret) |
+| `POSTGRES_DB` | Yes | — | PostgreSQL database name |
+| `POSTGRES_HOST` | Yes | — | PostgreSQL host (use `postgres` in compose) |
+| `POSTGRES_PORT` | No | `5432` | PostgreSQL port |
+| `POSTGRES_SSL_MODE` | No | `disable` | pgx `sslmode` parameter |
+| `REDIS_ADDR` | Yes | — | Redis address `host:port` (use `redis:6379` in compose) |
+| `REDIS_PASSWORD` | No | `""` | Redis AUTH password |
+| `REDIS_TLS` | No | `false` | Enable TLS for Redis connection |
+| `JWT_SECRET` | Yes | — | HMAC-SHA256 signing secret, minimum 32 bytes (secret) |
+| `API_PORT` | No | `8080` | HTTP API listener port |
+| `ADMIN_ADDR` | No | `:9091` | Admin/observability HTTP listener address |
+| `ENVIRONMENT` | No | `local` | Runtime environment name |
+| `LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `CORS_ALLOWED_ORIGINS` | No | `""` | Comma-separated exact origins for CORS (required in staging/production) |
+| `SESSION_CLEANUP_INTERVAL` | No | `1h` | Session cleanup worker interval (Go duration string) |
+
+---
+
+## Secret vs non-secret
+
+| Variable | Secret? | Where it lives |
+|---|---|---|
+| `POSTGRES_PASSWORD` | **Yes** | `deploy/secrets/env.*` only, never committed |
+| `REDIS_PASSWORD` | **Yes** | `deploy/secrets/env.*` only, never committed |
+| `JWT_SECRET` | **Yes** | `deploy/secrets/env.*` only, never committed |
+| All others | No | `deploy/secrets/env.*` or compose `environment:` block |
+
+---
+
+## Environment separation rules
+
+- Secrets must never be committed to git. `.gitignore` covers `.env`, `.env.*`,
+  `*.env`, and `deploy/secrets/env.*`.
+- Local `.env` files at the project root and in `apps/backend/` are gitignored.
+- The root `.env` (for local Docker Compose use) sets non-secret dev defaults.
+  It must not contain production values.
+- `deploy/secrets/env.*` files exist only on deployment hosts. The
+  `deploy/secrets/` directory is self-gitignored via `deploy/secrets/.gitignore`.
+- Production secrets must be different from staging secrets.
+- CI uses test databases / mock values. It never connects to production.
+
+---
+
+## Configuration for each environment
+
+### Local development
+
+Use `apps/backend/.env.example` as a reference. Copy it to `apps/backend/.env`
+(gitignored). Or use the root `docker-compose.yml` with a root `.env` file.
+
+```text
+ENVIRONMENT=local
+POSTGRES_SSL_MODE=disable
+REDIS_TLS=false
+LOG_LEVEL=debug
+```
+
+### CI / test
+
+Environment variables are set in the GitHub Actions workflow
+(`.github/workflows/ci.yml`). No secrets file is used in CI — the migration
+smoke test spins up a fresh postgres container with known test credentials.
+
+### Staging
+
+Copy `deploy/env.staging.example` to `deploy/secrets/env.staging` on the
+staging host. Set `POSTGRES_SSL_MODE=disable` when using the bundled compose
+postgres. Set explicit `CORS_ALLOWED_ORIGINS`.
+
+### Production
+
+Copy `deploy/env.production.example` to `deploy/secrets/env.production` on
+the production host. Set `POSTGRES_SSL_MODE=require` (or `verify-full`) for
+managed PostgreSQL. Set `REDIS_TLS=true` if using managed Redis with TLS.
+Set explicit `CORS_ALLOWED_ORIGINS`.
+
+---
+
+## .env file auto-loading caveat
+
+Docker Compose auto-loads a `.env` file from the project root when running
+`docker compose`. If the root `.env` defines any variable that a compose
+service also defines via `${VAR:-default}` substitution, the root `.env` value
+wins over the default.
+
+This was discovered during Phase 8C-2 validation: the root `.env` defines
+`POSTGRES_DB=dzeroth`, which overrode `${POSTGRES_DB:-dzeroth_staging}` in
+the staging compose file, causing PostgreSQL to initialize the wrong database.
+
+**Fix applied in commit `4e9caa2`:** Both compose files now hardcode the
+postgres init variables (`POSTGRES_DB`, `POSTGRES_USER`) as literal values
+rather than compose interpolation expressions. The root `.env` no longer
+affects postgres initialization.
