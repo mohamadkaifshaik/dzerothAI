@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily Dzeroth PostgreSQL backup at 02:00 UTC
+
+[Timer]
+# Fire at 02:00 UTC every day. The UTC suffix ensures the time is not
+# affected by the system timezone setting on the EC2 instance.
+OnCalendar=*-*-* 02:00:00 UTC
+# Persistent=true causes systemd to run the backup immediately at the next
+# opportunity if the system was powered off or the timer missed its last
+# scheduled run (e.g. after a reboot or maintenance window). Without this,
+# a missed backup would not run until the next day.
+Persistent=true
+Unit=dzeroth-backup.service
+
+[Install]
+WantedBy=timers.target

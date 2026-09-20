@@ -1,0 +1,28 @@
+[Unit]
+Description=Dzeroth PostgreSQL backup to S3
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Run as root — required to exec into Docker containers via `docker compose exec`.
+User=root
+# Repository root. The backup script resolves its path relative to its own
+# location (SCRIPT_DIR), so WorkingDirectory is informational here but ensures
+# any relative paths in the environment resolve correctly.
+WorkingDirectory=/opt/dzeroth
+ExecStart=/opt/dzeroth/scripts/backup/pg_backup.sh
+# No AWS credentials are set here — the EC2 IAM role (DzerothProductionBackupRole)
+# provides them via the instance metadata service (IMDS). The AWS CLI picks them
+# up automatically. Do not add AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY here.
+#
+# No database password is set here — PGPASSWORD is read by pg_dump from inside
+# the postgres container, where it was already injected by the Compose env_file.
+# The host script never sees or handles the database password.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dzeroth-backup
+# Do not restart on failure. A failed backup requires human investigation.
+# The systemd timer's Persistent=true will retry on the next scheduled run,
+# but an immediate automatic retry could mask a persistent failure.
+Restart=no
