@@ -55,6 +55,22 @@ services:
     # For orchestrators that override HEALTHCHECK, replicate the same check.
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  # ┌─ TLS NOTE ──────────────────────────────────────────────────────────────────┐
+  # │ This bundled PostgreSQL service has NO TLS configured.                      │
+  # │ The standard postgis/postgis image starts with ssl=off in postgresql.conf.  │
+  # │                                                                             │
+  # │ POSTGRES_SSL_MODE=require (the default in deploy/env.production.example)    │
+  # │ is intended for MANAGED PostgreSQL (AWS RDS, Cloud SQL, etc.) which         │
+  # │ provides server-side TLS automatically.                                     │
+  # │                                                                             │
+  # │ If you use this bundled postgres service you MUST either:                   │
+  # │   a) Set POSTGRES_SSL_MODE=disable in your env file (no TLS), OR           │
+  # │   b) Mount server certificates and set ssl=on in a custom postgresql.conf   │
+  # │      (see PostgreSQL TLS documentation).                                    │
+  # │                                                                             │
+  # │ Using POSTGRES_SSL_MODE=require against this unconfigured service will      │
+  # │ cause the API to fail on startup with an SSL connection error.              │
+  # └─────────────────────────────────────────────────────────────────────────────┘
   postgres:
     image: postgis/postgis:15-3.3
     restart: unless-stopped
@@ -80,10 +96,13 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # Launch with requirepass from the command line so the password never appears
-    # in environment variable listings. The value is read from the secret file by
-    # the shell substitution below — supply REDIS_PASSWORD in the host environment
-    # or via `--env-file deploy/secrets/env.production` before running compose.
+    # REDIS_PASSWORD is passed to redis-server via shell variable expansion so
+    # the literal value does not appear in the Compose YAML or in the CMD argument
+    # at the Compose level. However: because REDIS_PASSWORD is loaded from env_file
+    # into the container environment, it IS visible in `docker inspect <container>`
+    # under Config.Env — this is standard Docker behaviour. Anyone with Docker
+    # daemon access (effectively root) can read it. Use Docker Secrets or a secrets
+    # manager (Vault, etc.) if you need to prevent that.
     command: >
       sh -c 'redis-server --requirepass "$$REDIS_PASSWORD"'
     env_file:

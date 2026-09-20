@@ -45,6 +45,11 @@ services:
         condition: service_healthy
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  # TLS NOTE: This bundled PostgreSQL service has NO TLS configured.
+  # POSTGRES_SSL_MODE=require (in env.staging.example) will fail against this
+  # service. Set POSTGRES_SSL_MODE=disable for self-hosted staging, or use a
+  # managed PostgreSQL service with TLS. See docker-compose.prod.yml for the
+  # full explanation.
   postgres:
     image: postgis/postgis:15-3.3
     restart: unless-stopped
@@ -67,6 +72,8 @@ services:
       start_period: 30s
 
   # ── Redis ─────────────────────────────────────────────────────────────────────
+  # REDIS_PASSWORD is not in the Compose YAML or CMD literally, but IS visible
+  # in `docker inspect` under Config.Env — see docker-compose.prod.yml for details.
   redis:
     image: redis:7-alpine
     restart: unless-stopped

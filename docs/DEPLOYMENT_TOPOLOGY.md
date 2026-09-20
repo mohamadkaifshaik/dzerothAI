@@ -186,6 +186,34 @@ for your infrastructure.
 
 ---
 
+## PostgreSQL TLS and the bundled Compose service
+
+The env templates (`deploy/env.production.example`, `deploy/env.staging.example`) default to
+`POSTGRES_SSL_MODE=require`. This setting is intended for **managed PostgreSQL** services
+(AWS RDS, Google Cloud SQL, Supabase, Neon, etc.) that configure server-side TLS automatically.
+
+**The bundled `postgres:` service in `docker-compose.prod.yml` / `docker-compose.staging.yml`
+uses the standard `postgis/postgis:15-3.3` image which starts with `ssl=off` in
+`postgresql.conf`. Connecting with `POSTGRES_SSL_MODE=require` against this service will
+cause the API to fail on startup with an SSL connection error.**
+
+| PostgreSQL deployment | Correct `POSTGRES_SSL_MODE` |
+|----------------------|----------------------------|
+| Managed service (RDS, Cloud SQL, etc.) | `require` or `verify-full` |
+| Bundled Compose service (no TLS configured) | `disable` |
+| Bundled Compose service with custom certs mounted | `require` or `verify-full` |
+
+To enable TLS on the bundled service you must:
+1. Generate or obtain server certificate + key files
+2. Mount them into the postgres container (e.g. `/etc/ssl/server.crt`, `/etc/ssl/server.key`)
+3. Supply a custom `postgresql.conf` with `ssl = on`, `ssl_cert_file`, `ssl_key_file`
+4. Add the mount and config to the compose postgres service definition
+
+This additional configuration is outside the scope of the starter compose files.
+The recommended production path is to use a managed PostgreSQL service.
+
+---
+
 ## Replacing compose services with managed infrastructure
 
 For production, consider replacing the compose-defined PostgreSQL and Redis
