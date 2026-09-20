@@ -38,9 +38,10 @@ services:
       REDIS_ADDR: "redis:6379"
       ENVIRONMENT: production
     ports:
-      # Public API. Place a TLS-terminating reverse proxy in front.
-      # The API itself speaks plain HTTP; TLS is terminated at the proxy.
-      - "8080:8080"
+      # Public API. Nginx terminates TLS on the same host and proxies to
+      # 127.0.0.1:8080. Binding to loopback ensures the API is not directly
+      # reachable from other host interfaces or the public internet.
+      - "127.0.0.1:8080:8080"
       # Admin port (metrics, livez, readyz) is intentionally NOT published here.
       # Access it within the private network from a monitoring sidecar or
       # via `docker exec ... wget -qO- http://localhost:9091/metrics`.
