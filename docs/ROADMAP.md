@@ -129,6 +129,13 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 **Exit gate:** a repeatable production release can be performed and rolled back safely.
 
+### Phase 8B — CI Foundation
+
+- [x] GitHub Actions workflow: go test, go vet, flutter analyze, flutter test, Docker build
+- [ ] Migration smoke test (Phase 8B-2)
+- [ ] Race detector job
+- [ ] Deployment pipeline
+
 ## Rule
 
 Do not skip phases merely because a feature appears small. Cross-layer work must be traced from UI to API to persistence and back.
