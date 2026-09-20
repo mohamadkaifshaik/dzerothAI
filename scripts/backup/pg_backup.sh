@@ -77,6 +77,76 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
     exit 1
 fi
 
+# ── Docker Compose binary resolution ─────────────────────────────────────────
+# Docker Compose v2 is a CLI plugin that may only be installed per-user
+# (e.g. ~/.docker/cli-plugins/docker-compose). When this script runs as root
+# under systemd, root's Docker CLI has no plugin path and `docker compose`
+# fails with "is not a docker command".
+#
+# Resolution order:
+#   1. DOCKER_COMPOSE_BIN env override (explicit / testable)
+#   2. System-wide plugin locations (preferred — accessible to root)
+#   3. /home/ec2-user/.docker/cli-plugins/docker-compose (user-space fallback)
+#
+# Deployment prerequisite — create the system-wide symlink once on the host:
+#   sudo mkdir -p /usr/local/lib/docker/cli-plugins
+#   sudo ln -sf /home/ec2-user/.docker/cli-plugins/docker-compose \
+#       /usr/local/lib/docker/cli-plugins/docker-compose
+find_docker_compose() {
+    # 1. Explicit override — highest priority, useful for testing and overrides.
+    if [[ -n "${DOCKER_COMPOSE_BIN:-}" ]]; then
+        if [[ -x "${DOCKER_COMPOSE_BIN}" ]]; then
+            DOCKER_COMPOSE_CMD="${DOCKER_COMPOSE_BIN}"
+            log_info "Docker Compose binary (override): ${DOCKER_COMPOSE_CMD}"
+            return 0
+        else
+            log_error "DOCKER_COMPOSE_BIN is set but not executable: ${DOCKER_COMPOSE_BIN}"
+            exit 1
+        fi
+    fi
+
+    # 2. System-wide plugin locations — accessible to all users including root.
+    local _dc_paths=(
+        /usr/local/lib/docker/cli-plugins/docker-compose
+        /usr/libexec/docker/cli-plugins/docker-compose
+        /usr/lib/docker/cli-plugins/docker-compose
+        /usr/local/libexec/docker/cli-plugins/docker-compose
+        /usr/local/bin/docker-compose
+        /usr/bin/docker-compose
+    )
+    local _p
+    for _p in "${_dc_paths[@]}"; do
+        if [[ -x "${_p}" ]]; then
+            DOCKER_COMPOSE_CMD="${_p}"
+            log_info "Docker Compose binary (system): ${DOCKER_COMPOSE_CMD}"
+            return 0
+        fi
+    done
+
+    # 3. User-space fallback — ec2-user's plugin directory.
+    # Root can execute binaries owned by other users.
+    # This is where the official Docker install script places the plugin on
+    # Amazon Linux 2023 when installed as a non-root user.
+    local _user_path="/home/ec2-user/.docker/cli-plugins/docker-compose"
+    if [[ -x "${_user_path}" ]]; then
+        DOCKER_COMPOSE_CMD="${_user_path}"
+        log_info "Docker Compose binary (user-space fallback): ${DOCKER_COMPOSE_CMD}"
+        return 0
+    fi
+
+    log_error "Docker Compose binary not found."
+    log_error "Tried system paths: ${_dc_paths[*]}"
+    log_error "Tried user-space: ${_user_path}"
+    log_error "To fix, create a system-wide symlink:"
+    log_error "  sudo mkdir -p /usr/local/lib/docker/cli-plugins"
+    log_error "  sudo ln -sf /home/ec2-user/.docker/cli-plugins/docker-compose \\"
+    log_error "      /usr/local/lib/docker/cli-plugins/docker-compose"
+    log_error "Or set DOCKER_COMPOSE_BIN=/path/to/docker-compose."
+    exit 1
+}
+
+find_docker_compose
+
 # ── Setup ─────────────────────────────────────────────────────────────────────
 if [[ ! -d "${BACKUP_DIR}" ]]; then
     mkdir -p "${BACKUP_DIR}"
@@ -118,7 +188,7 @@ trap cleanup EXIT
 # absent from older system-installed versions. Passing it to those versions
 # causes the Docker CLI itself to reject it with "unknown flag: --env-file".
 compose_exec() {
-    docker compose -f "${COMPOSE_FILE}" \
+    "${DOCKER_COMPOSE_CMD}" -f "${COMPOSE_FILE}" \
         exec -T "${POSTGRES_SERVICE}" "$@"
 }
 

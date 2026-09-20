@@ -286,6 +286,56 @@ else
     fail "pg_restore.sh: --env-file found in non-comment lines: ${RESTORE_ENV_FILE_LINES}"
 fi
 
+# ── Test 12: find_docker_compose — function present and DOCKER_COMPOSE_BIN respected ──
+echo ""
+echo "=== Test group: find_docker_compose function ==="
+
+# Verify the function is declared in both scripts.
+if grep -q "find_docker_compose" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: find_docker_compose function is present"
+else
+    fail "pg_backup.sh: find_docker_compose function is missing"
+fi
+
+if grep -q "find_docker_compose" "${RESTORE_SCRIPT}"; then
+    pass "pg_restore.sh: find_docker_compose function is present"
+else
+    fail "pg_restore.sh: find_docker_compose function is missing"
+fi
+
+# DOCKER_COMPOSE_BIN set to a non-executable file must cause non-zero exit.
+# We provide both a valid COMPOSE_FILE and a secrets file so the failure
+# lands specifically in find_docker_compose, not in earlier guards.
+TMPDC_DIR="$(mktemp -d)"
+touch "${TMPDC_DIR}/docker-compose.prod.yml"
+mkdir -p "${TMPDC_DIR}/deploy/secrets"
+touch "${TMPDC_DIR}/deploy/secrets/env.production"
+
+NONEXEC_BIN="$(mktemp)"
+# chmod +x intentionally NOT called — file must not be executable.
+
+DCB_EXIT=0
+DCB_OUTPUT="$(
+    COMPOSE_FILE="${TMPDC_DIR}/docker-compose.prod.yml" \
+    DOCKER_COMPOSE_BIN="${NONEXEC_BIN}" \
+    bash "${BACKUP_SCRIPT}" 2>&1
+)" || DCB_EXIT=$?
+
+rm -f "${NONEXEC_BIN}"
+rm -rf "${TMPDC_DIR}"
+
+if [[ ${DCB_EXIT} -ne 0 ]]; then
+    pass "pg_backup.sh: exits non-zero when DOCKER_COMPOSE_BIN is not executable (exit=${DCB_EXIT})"
+else
+    fail "pg_backup.sh: should exit non-zero when DOCKER_COMPOSE_BIN is not executable"
+fi
+
+if echo "${DCB_OUTPUT}" | grep -qi "not executable\|DOCKER_COMPOSE_BIN"; then
+    pass "pg_backup.sh: error output mentions DOCKER_COMPOSE_BIN or not executable"
+else
+    fail "pg_backup.sh: DOCKER_COMPOSE_BIN error output unexpected (got: ${DCB_OUTPUT})"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "========================================"
