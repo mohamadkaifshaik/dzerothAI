@@ -172,7 +172,7 @@ jobs:
         # "Configure Redis authentication" workflow step before the tests run.
         image: redis:7-alpine
         options: >-
-          --health-cmd "redis-cli ping"
+          --health-cmd "redis-cli ping || redis-cli -a ciredispassword ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -194,21 +194,34 @@ jobs:
           cache: true
 
       - name: Configure Redis authentication
-        # Set requirepass after the service container is healthy.
-        # ubuntu-latest runners include redis-tools (redis-cli).
-        run: redis-cli -h 127.0.0.1 config set requirepass ciredispassword
+        # redis-cli is not installed on the GitHub Actions runner host.
+        # Run it inside the redis:7-alpine service container via docker exec.
+        # The container is located by image using docker ps --filter ancestor,
+        # which is reliable on a fresh single-job runner VM.
+        run: |
+          REDIS_CONTAINER="$(docker ps -q --filter ancestor=redis:7-alpine)"
+          if [[ -z "${REDIS_CONTAINER}" ]]; then
+            echo "ERROR: Could not find redis:7-alpine container"
+            docker ps
+            exit 1
+          fi
+          docker exec "${REDIS_CONTAINER}" redis-cli config set requirepass ciredispassword
 
       - name: Verify Redis authentication is enforced
-        # Regression guard: unauthenticated ping must be rejected and
-        # authenticated ping must return PONG before the Go tests run.
+        # Regression guard: confirm requirepass is active inside the container
+        # before the Go integration tests run.
         run: |
-          UNAUTH="$(redis-cli -h 127.0.0.1 ping 2>&1)" || true
+          REDIS_CONTAINER="$(docker ps -q --filter ancestor=redis:7-alpine)"
+          # Unauthenticated ping must be rejected after requirepass is set.
+          UNAUTH="$(docker exec "${REDIS_CONTAINER}" redis-cli ping 2>&1)" || true
           if echo "${UNAUTH}" | grep -q "^PONG"; then
             echo "ERROR: Redis accepted unauthenticated ping — requirepass not active"
             exit 1
           fi
           echo "OK: Unauthenticated access rejected (got: ${UNAUTH})"
-          redis-cli -h 127.0.0.1 -a ciredispassword ping 2>/dev/null | grep -q PONG
+          # Authenticated ping must return PONG.
+          docker exec "${REDIS_CONTAINER}" \
+            redis-cli -a ciredispassword ping 2>/dev/null | grep -q PONG
           echo "OK: Authenticated ping returned PONG"
 
       - name: Run integration tests
