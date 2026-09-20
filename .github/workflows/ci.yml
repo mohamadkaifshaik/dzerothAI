@@ -145,6 +145,66 @@ jobs:
       - name: Run tests with race detector
         run: go test -race ./...
 
+  integration:
+    name: Integration Tests (PostgreSQL + Redis)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_USER: dzeroth
+          POSTGRES_PASSWORD: cipassword
+          POSTGRES_DB: dzeroth_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        # bitnami/redis supports REDIS_PASSWORD env var to set requirepass at startup.
+        # The official redis:7-alpine image does not support password configuration via
+        # env var — GitHub Actions service containers cannot override the container
+        # command, so bitnami/redis is used here instead of redis:7-alpine.
+        image: bitnami/redis:7.0
+        env:
+          REDIS_PASSWORD: ciredispassword
+        options: >-
+          --health-cmd "redis-cli -a ciredispassword ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Run integration tests
+        env:
+          POSTGRES_USER: dzeroth
+          POSTGRES_PASSWORD: cipassword
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: dzeroth_test
+          REDIS_ADDR: "localhost:6379"
+          REDIS_PASSWORD: ciredispassword
+        run: go test -tags integration -v ./internal/integration/
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest

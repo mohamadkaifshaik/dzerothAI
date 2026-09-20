@@ -136,6 +136,19 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [x] Race-detector CI on Linux (Phase 8B-3)
 - [ ] Deployment pipeline
 
+### Phase 8C — Deployment Foundation
+
+- [x] Production/staging Docker Compose topology (Phase 8C-1)
+- [x] Private admin/DB/Redis ports, secrets provisioning, topology documentation (Phase 8C-1)
+- [x] Staging runtime validation end-to-end (Phase 8C-2)
+- [x] Operational runbook and pre-production security checklist (Phase 8C-3)
+
+### Phase 8D — Live Integration Test Foundation
+
+- [x] Live PostgreSQL integration tests: connectivity, migrations idempotency, user CRUD, session CRUD, constraint enforcement (Phase 8D-1)
+- [x] Live Redis integration tests: connectivity, auth rejection, rate-limit key behavior (SetNX/Incr/Expire), key isolation, window expiry (Phase 8D-1)
+- [x] `integration` job added to CI (bitnami/redis with requirepass, postgis:15-3.3) (Phase 8D-1)
+
 ## Rule
 
 Do not skip phases merely because a feature appears small. Cross-layer work must be traced from UI to API to persistence and back.
