@@ -403,6 +403,27 @@ else
     fail "pg_backup.sh: container validation temp file cleanup is missing"
 fi
 
+# ── Test 14: S3 server-side encryption option ─────────────────────────────────
+#
+# Root cause guard: `--sse aws:s3` is not a valid value for `aws s3 cp`.
+# The AWS CLI S3 SSE-S3 option requires `--sse AES256`.
+echo ""
+echo "=== Test group: S3 SSE option ==="
+
+# Must use --sse AES256.
+if grep -q "\-\-sse AES256" "${BACKUP_SCRIPT}"; then
+    pass "pg_backup.sh: S3 upload uses --sse AES256"
+else
+    fail "pg_backup.sh: S3 upload must use --sse AES256"
+fi
+
+# Must NOT use --sse aws:s3 (invalid AWS CLI value).
+if grep -q "\-\-sse aws:s3" "${BACKUP_SCRIPT}"; then
+    fail "pg_backup.sh: S3 upload must not use --sse aws:s3 (invalid AWS CLI value)"
+else
+    pass "pg_backup.sh: S3 upload does not use --sse aws:s3"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "========================================"

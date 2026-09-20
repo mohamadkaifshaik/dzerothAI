@@ -318,7 +318,7 @@ S3_KEY="${S3_PREFIX}/${FILENAME}"
 S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
 
 log_info "Uploading to S3: ${S3_URI}"
-aws s3 cp "${FINALFILE}" "${S3_URI}" --sse aws:s3
+aws s3 cp "${FINALFILE}" "${S3_URI}" --sse AES256
 log_info "S3 upload complete."
 
 # ── S3 verification ───────────────────────────────────────────────────────────
