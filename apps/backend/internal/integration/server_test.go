@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	rdb "github.com/redis/go-redis/v9"
@@ -357,14 +358,15 @@ func doJSON(t *testing.T, method, url string, body io.Reader, headers map[string
 }
 
 // registerTestUser registers a new unique user on the test server and returns
-// the token pair. The credentials are generated from a unique test suffix.
+// the token pair. Credentials are derived from a UUID to guarantee uniqueness
+// across all tests sharing the same database, regardless of test name prefixes.
 func registerTestUser(t *testing.T, srv *testAPIServer) *apiTokenPair {
 	t.Helper()
 
-	suffix := uniqueSuffix(t)
+	id := uuid.New().String()[:8]
 	// Ensure handle is 3–50 chars, starts/ends with alphanumeric.
-	handle := "u" + suffix[:15]
-	email := "apitest_" + suffix[:16] + "@example.com"
+	handle := "u" + id
+	email := "apitest_" + id + "@example.com"
 	password := "Password123!"
 
 	body := fmt.Sprintf(

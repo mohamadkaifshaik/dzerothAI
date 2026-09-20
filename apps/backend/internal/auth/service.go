@@ -115,14 +115,14 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (*TokenPair, erro
 		if errors.Is(err, ErrNotFound) {
 			// Return a generic error to avoid leaking whether the email exists.
 			s.events.RecordAuthEvent(platformMetrics.AuthEventLoginFailure)
-			return nil, &ValidationError{Message: "invalid credentials"}
+			return nil, &UnauthorizedError{Message: "invalid credentials"}
 		}
 		return nil, fmt.Errorf("auth: login lookup: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
 		s.events.RecordAuthEvent(platformMetrics.AuthEventLoginFailure)
-		return nil, &ValidationError{Message: "invalid credentials"}
+		return nil, &UnauthorizedError{Message: "invalid credentials"}
 	}
 
 	if user.IsSuspended {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -31,9 +32,11 @@ func TestAPI_AuthFlow_RegisterLoginGetMe(t *testing.T) {
 	srv := buildTestAPIServer(t, pool, redisClient, nil)
 
 	// ── 1. Register ──────────────────────────────────────────────────────────
-	suffix := uniqueSuffix(t)
-	handle := "u" + suffix[:15]
-	email := "apime_" + suffix[:16] + "@example.com"
+	// Use UUID-based suffix to guarantee uniqueness across all tests sharing
+	// the same database, regardless of test name prefixes.
+	id := uuid.New().String()[:8]
+	handle := "u" + id
+	email := "apime_" + id + "@example.com"
 	password := "Password123!"
 
 	regBody := fmt.Sprintf(
@@ -72,18 +75,21 @@ func TestAPI_AuthFlow_RegisterLoginGetMe(t *testing.T) {
 	}
 
 	// Verify the profile contains the registered handle and email.
-	var profile struct {
-		Handle string `json:"handle"`
-		Email  string `json:"email"`
+	// GET /me returns {"data": OwnProfile}, so unwrap the envelope.
+	var meBody struct {
+		Data struct {
+			Handle string `json:"handle"`
+			Email  string `json:"email"`
+		} `json:"data"`
 	}
-	if err := json.NewDecoder(meResp.Body).Decode(&profile); err != nil {
+	if err := json.NewDecoder(meResp.Body).Decode(&meBody); err != nil {
 		t.Fatalf("GET /me: decode body: %v", err)
 	}
-	if profile.Handle != handle {
-		t.Errorf("GET /me: handle = %q, want %q", profile.Handle, handle)
+	if meBody.Data.Handle != handle {
+		t.Errorf("GET /me: handle = %q, want %q", meBody.Data.Handle, handle)
 	}
-	if profile.Email != email {
-		t.Errorf("GET /me: email = %q, want %q", profile.Email, email)
+	if meBody.Data.Email != email {
+		t.Errorf("GET /me: email = %q, want %q", meBody.Data.Email, email)
 	}
 }
 
@@ -559,9 +565,9 @@ func TestAPI_PostgreSQL_GetMe_ReturnsPersistedData(t *testing.T) {
 	redisClient := connectTestRedis(t)
 	srv := buildTestAPIServer(t, pool, redisClient, nil)
 
-	suffix := uniqueSuffix(t)
-	handle := "u" + suffix[:15]
-	email := "pgme_" + suffix[:16] + "@example.com"
+	pgID := uuid.New().String()[:8]
+	handle := "u" + pgID
+	email := "pgme_" + pgID + "@example.com"
 	displayName := "PG Me Test"
 	password := "Password123!"
 
@@ -583,22 +589,25 @@ func TestAPI_PostgreSQL_GetMe_ReturnsPersistedData(t *testing.T) {
 		t.Fatalf("GET /me: want 200, got %d: %s", meResp.StatusCode, body)
 	}
 
-	var profile struct {
-		Handle      string `json:"handle"`
-		DisplayName string `json:"display_name"`
-		Email       string `json:"email"`
+	// GET /me returns {"data": OwnProfile}, so unwrap the envelope.
+	var pgMeBody struct {
+		Data struct {
+			Handle      string `json:"handle"`
+			DisplayName string `json:"display_name"`
+			Email       string `json:"email"`
+		} `json:"data"`
 	}
-	if err := json.NewDecoder(meResp.Body).Decode(&profile); err != nil {
+	if err := json.NewDecoder(meResp.Body).Decode(&pgMeBody); err != nil {
 		t.Fatalf("GET /me: decode: %v", err)
 	}
-	if profile.Handle != handle {
-		t.Errorf("handle = %q, want %q", profile.Handle, handle)
+	if pgMeBody.Data.Handle != handle {
+		t.Errorf("handle = %q, want %q", pgMeBody.Data.Handle, handle)
 	}
-	if profile.DisplayName != displayName {
-		t.Errorf("display_name = %q, want %q", profile.DisplayName, displayName)
+	if pgMeBody.Data.DisplayName != displayName {
+		t.Errorf("display_name = %q, want %q", pgMeBody.Data.DisplayName, displayName)
 	}
-	if profile.Email != email {
-		t.Errorf("email = %q, want %q", profile.Email, email)
+	if pgMeBody.Data.Email != email {
+		t.Errorf("email = %q, want %q", pgMeBody.Data.Email, email)
 	}
 }
 
