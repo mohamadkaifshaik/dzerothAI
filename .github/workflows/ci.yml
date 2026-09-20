@@ -61,6 +61,70 @@ jobs:
       - name: Test
         run: flutter test
 
+  migrations:
+    name: Migration Smoke Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_USER: dzeroth
+          POSTGRES_PASSWORD: cipassword
+          POSTGRES_DB: dzeroth_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Install golang-migrate CLI
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
+
+      - name: Run migrations
+        env:
+          POSTGRES_USER: dzeroth
+          POSTGRES_PASSWORD: cipassword
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: dzeroth_test
+        run: |
+          migrate -path db/migrations \
+            -database "postgres://dzeroth:cipassword@localhost:5432/dzeroth_test?sslmode=disable" \
+            up
+
+      - name: Verify schema
+        env:
+          PGPASSWORD: cipassword
+        run: |
+          psql -h localhost -U dzeroth -d dzeroth_test -c "
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            ORDER BY table_name
+          " | grep -E "bookmarks|follows|notifications|posts|reports|sessions|users"
+          psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM users"
+          psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM sessions"
+          psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM posts"
+          psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM follows"
+          psql -h localhost -U dzeroth -d dzeroth_test -c "SELECT COUNT(*) FROM schema_migrations"
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
