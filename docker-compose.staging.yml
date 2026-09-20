@@ -43,6 +43,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # stop_grace_period must exceed the application's own 15-second shutdown timeout.
+    # 20s provides a 5-second buffer above the Go API's graceful shutdown window.
+    stop_grace_period: 20s
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
   # TLS NOTE: This bundled PostgreSQL service has NO TLS configured.

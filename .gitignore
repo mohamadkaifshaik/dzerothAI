@@ -10,6 +10,11 @@
 # but add an explicit root-level guard as a safety net.
 deploy/secrets/env.*
 
+# Docker Secrets files — plain secret values, must never be committed
+secrets/*.txt
+secrets/*.key
+secrets/*.pem
+
 # Claude Code local session settings
 .claude/settings.local.json
 

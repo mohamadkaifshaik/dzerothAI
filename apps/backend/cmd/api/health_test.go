@@ -361,6 +361,14 @@ func TestHealth_NoSensitiveData(t *testing.T) {
 	}
 }
 
+// ── Security headers ──────────────────────────────────────────────────────────
+//
+// Note: The SecurityHeaders middleware is wired into the chi router in main.go.
+// The handler tests below call the handler functions directly (not through the
+// full router middleware stack), so security headers are not exercised here.
+// Security header presence on real HTTP responses is verified separately in
+// internal/platform/middleware/security_headers_test.go.
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // containsCI reports whether s contains substr (case-insensitive).

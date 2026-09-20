@@ -128,8 +128,36 @@ If the proxy does not sanitize forwarding headers:
 nginx, Caddy, AWS ALB, GCP Cloud Load Balancing, Cloudflare, HAProxy, or any
 product that provides configurable `X-Forwarded-For` / `X-Real-IP` sanitization.
 
-**No proxy implementation is included in this repository.** The proxy must be
-provisioned separately before a production deployment is attempted.
+### Reference nginx configuration
+
+A reference nginx configuration is provided at `nginx/nginx.prod.conf`. It:
+- Listens on port 443 (TLS) with a redirect from port 80.
+- Proxies to the Go API container (`http://api:8080`).
+- Sets `proxy_set_header X-Real-IP $remote_addr` — uses the accepted TCP connection
+  IP, NOT the client-supplied header value. This is the correct setting.
+- Does NOT include `proxy_set_header X-Real-IP $http_x_real_ip` (that would trust
+  the client and defeat rate-limit protection).
+- Sets proxy timeouts matching the Go API's 30-second handler timeout.
+- Places HSTS (`Strict-Transport-Security`) at the proxy layer, not the application.
+- Does NOT proxy the admin port (:9091) — admin is internal only.
+
+Operators must replace placeholder certificate paths and domain names before use.
+This configuration is a reference starting point, not a production-hardened template.
+
+The `nginx` service is not included in `docker-compose.prod.yml`. The proxy is
+provisioned separately (as a system service, a sidecar container, or a cloud LB).
+
+### Required trusted-proxy topology
+
+```
+Internet → Nginx (TLS termination, :443) → Go API (plain HTTP, :8080)
+```
+
+Running the Go API with port 8080 directly exposed to the internet is NOT
+supported for production. Without the trusted proxy:
+- No TLS termination.
+- `X-Real-IP` and `X-Forwarded-For` are client-controlled — rate limits are bypassed.
+- Access logs show client-supplied IPs — untrustworthy.
 
 ---
 
@@ -606,13 +634,14 @@ adminSrv.Shutdown(ctx) — drain admin server
 process exits 0
 ```
 
-`docker compose stop api` sends SIGTERM. The container is allowed to exit
-cleanly within Docker's stop timeout (default 10 seconds). If the shutdown
-takes longer than 10 seconds, Docker sends SIGKILL.
+`docker compose stop api` sends SIGTERM. Both `docker-compose.prod.yml` and
+`docker-compose.staging.yml` set `stop_grace_period: 20s` on the API service,
+giving the application 20 seconds to drain in-flight requests before Docker
+sends SIGKILL. This is 5 seconds above the Go API's own 15-second shutdown
+timeout.
 
 **Do not use forced SIGKILL (`docker kill`) as the normal deployment path.**
-Let the container stop gracefully. If the stop timeout is too short for a
-specific deployment, increase it in the compose file with `stop_grace_period`.
+Let the container stop gracefully.
 
 If the API container is hard-killed (`SIGKILL`), the session cleanup worker
 may be mid-batch. The cleanup SQL is idempotent — restarting will not leave
@@ -622,23 +651,24 @@ orphaned data.
 
 ## Healthcheck constraint
 
-The Dockerfile HEALTHCHECK targets port 8080:
+The Dockerfile HEALTHCHECK uses the `API_PORT` build argument and ENV:
 
 ```dockerfile
+ARG API_PORT=8080
+ENV API_PORT=${API_PORT}
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD wget -qO- http://localhost:${API_PORT}/health || exit 1
 ```
 
 The `API_PORT` environment variable controls what port the HTTP server listens
-on (`config.go` default: `8080`). Both the `deploy/env.production.example` and
-`deploy/env.staging.example` templates set `API_PORT=8080`.
+on (`config.go` default: `8080`). The `ENV API_PORT=8080` in the Dockerfile
+makes this explicit and the HEALTHCHECK references `${API_PORT}`.
 
-**If `API_PORT` is overridden to a non-8080 value at runtime, the Dockerfile
-HEALTHCHECK will target the wrong port and the container will show as
-unhealthy.** This is a known limitation. If a future deployment requires a
-different API port, the Dockerfile healthcheck must be updated to use the
-configured port (e.g., via a startup script that reads `$API_PORT`). That
-change is a required future hardening task, not implemented in the current phase.
+**If `API_PORT` is overridden to a non-8080 value at runtime without also
+overriding the build-time ARG, the Dockerfile ENV and HEALTHCHECK will target
+8080.** To change the port: rebuild the image with `--build-arg API_PORT=<port>`.
+The production and staging env templates set `API_PORT=8080`; changing the
+port in a running container without rebuilding the image is not supported.
 
 ---
 
@@ -894,11 +924,11 @@ Use this checklist before any production deployment. Status labels:
 | 16 | `/readyz` returns 200 before routing traffic | **Implemented** (endpoint exists and is correct) |
 | 17 | `/health` returns `"status":"ok"` | **Implemented** |
 | 18 | `/metrics` not publicly reachable (admin port only) | **Implemented** |
-| 19 | PostgreSQL backup strategy confirmed and tested | **Not yet implemented** |
+| 19 | PostgreSQL backup strategy confirmed and restore tested | **Implemented** (`scripts/backup/pg_backup.sh`, `pg_restore.sh`; see `docs/BACKUP_RECOVERY.md`). Operator must install cron and test restore drill. |
 | 20 | Rollback compatibility assessed for any schema changes | **Required** (human review) |
-| 21 | Production reverse proxy provisioned with valid TLS certificate | **Not yet implemented** |
-| 22 | Secrets manager or equivalent in place of plain env files | **Not yet implemented** |
-| 23 | External monitoring / alerting on `dzeroth_redis_up`, `readyz`, error rates | **Not yet implemented** |
+| 21 | Production reverse proxy provisioned with valid TLS certificate | **Reference config** (`nginx/nginx.prod.conf`); operator must provision and configure with real certs. |
+| 22 | Docker Secrets `_FILE` convention supported; opt-in for operators | **Implemented** (config.go supports `JWT_SECRET_FILE`, `POSTGRES_PASSWORD_FILE`, `REDIS_PASSWORD_FILE`; see `secrets/README.md`). Default deployment still uses plain env files. |
+| 23 | External monitoring / alerting on `dzeroth_redis_up`, `readyz`, error rates | **Reference config** (`monitoring/prometheus.yml`; see `docs/MONITORING.md`). Operator must deploy Prometheus and configure alerting. |
 
 ---
 
@@ -910,16 +940,16 @@ resolved before production readiness.
 
 | Gap | Status | Impact |
 |---|---|---|
-| **Production reverse proxy** | Not in repository. Operator must provision separately (nginx, Caddy, ALB, etc.). | Without it: no TLS, no XFF sanitization, no rate-limit protection. |
+| **Production reverse proxy** | Reference config in `nginx/nginx.prod.conf`. Operator must provision and configure separately. | Without it: no TLS, no XFF sanitization, no rate-limit protection. |
 | **Managed PostgreSQL (production)** | Not provisioned. Bundled compose postgres is self-hosted without TLS. | `POSTGRES_SSL_MODE=require` will fail against bundled service; must use `disable` or provision managed PostgreSQL. |
 | **Managed Redis (production)** | Not provisioned. Bundled compose redis has no TLS. | `REDIS_TLS=true` not functional until managed Redis is provisioned. |
-| **Secrets manager** | Not implemented. Secrets are plain files in `deploy/secrets/` on the deployment host. | Secrets visible via `docker inspect` Config.Env; accessible to anyone with Docker daemon access. |
-| **PostgreSQL backups** | Not implemented. No backup schedule, no off-host storage, no restore test. | Data loss in case of volume deletion or host failure. |
-| **Restore testing** | Not performed. | Unknown whether a backup can actually be restored to a working state. |
-| **External monitoring / alerting** | Not implemented. Prometheus metrics exist but no scraper, dashboard, or alerting is configured. | No proactive notification on failures. |
+| **Secrets manager** | Docker Secrets `_FILE` convention supported by config.go. `secrets/README.md` documents file creation. Plain `env_file` still used by default in Compose files. | Secrets still visible via `docker inspect` Config.Env when using plain env vars. Operators can opt into Docker Secrets file pattern. |
+| **PostgreSQL backups** | `scripts/backup/pg_backup.sh` / `pg_restore.sh` implemented. See `docs/BACKUP_RECOVERY.md`. Off-host copy and cron installation are operator responsibilities. | No backup until operator installs and schedules the scripts. |
+| **Restore testing** | Scripts implemented; restore drill not yet performed. | Unknown whether a specific backup can be restored to a working state until tested. |
+| **External monitoring / alerting** | `monitoring/prometheus.yml` reference scrape config added. See `docs/MONITORING.md`. No alertmanager or Grafana dashboards provided. | No proactive notification on failures until operator configures Prometheus alerting. |
 | **Deployment platform / CD pipeline** | Not implemented. Manual `docker compose` deployment only. | No automated production rollout or rollback trigger. |
-| **Healthcheck port flexibility** | Dockerfile hardcodes port 8080 in HEALTHCHECK. | Overriding `API_PORT` breaks the container healthcheck. |
-| **Redis error counter wiring** | `dzeroth_redis_errors_total` is registered but dormant (no central Redis boundary). | Redis errors not counted in metrics. |
+| **Healthcheck port flexibility** | `ARG API_PORT=8080` + `ENV API_PORT` added to Dockerfile; HEALTHCHECK uses `${API_PORT}`. | Overriding `API_PORT` at runtime without rebuilding the image is still not supported. |
+| **Redis error counter wiring** | `dzeroth_redis_errors_total` is registered but dormant. Wiring deferred — requires adding `*InfraMetrics` to `RateLimitMiddleware` signature. | Redis errors not counted in metrics. See `docs/MONITORING.md`. |
 
 ---
 

@@ -53,6 +53,10 @@ services:
         condition: service_healthy
     # The Dockerfile HEALTHCHECK covers /health on 8080.
     # For orchestrators that override HEALTHCHECK, replicate the same check.
+    # stop_grace_period must exceed the application's own 15-second shutdown timeout.
+    # 20s provides a 5-second buffer. Without this, Docker sends SIGKILL after the
+    # default 10s before the application can drain in-flight HTTP requests cleanly.
+    stop_grace_period: 20s
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
   # ┌─ TLS NOTE ──────────────────────────────────────────────────────────────────┐

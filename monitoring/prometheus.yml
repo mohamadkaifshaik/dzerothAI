@@ -1,0 +1,51 @@
+# monitoring/prometheus.yml — Prometheus scrape configuration for Dzeroth.
+#
+# This is a reference scrape configuration. Adapt to your Prometheus deployment.
+#
+# The Dzeroth API exposes Prometheus metrics on the admin listener (default :9091).
+# The admin port must NOT be publicly accessible — see docs/DEPLOYMENT_TOPOLOGY.md.
+#
+# Usage with Docker Compose (add to docker-compose.prod.yml or a monitoring overlay):
+#
+#   prometheus:
+#     image: prom/prometheus:v2.50.0
+#     volumes:
+#       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+#     networks:
+#       - backend   # must be on the same Docker network as the api container
+#     # Do not expose Prometheus publicly.
+#
+# Note: Grafana dashboards and alert rules are operational infrastructure and are not
+# provided in this repository. Operators should configure Prometheus alertmanager and
+# Grafana dashboards against the metrics described in docs/MONITORING.md.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  scrape_timeout: 10s
+
+  # Attach these labels to all metrics scraped from this Prometheus instance.
+  external_labels:
+    environment: production
+    service: dzeroth-api
+
+scrape_configs:
+
+  # ── Dzeroth API ──────────────────────────────────────────────────────────────
+  - job_name: dzeroth_api
+    # The admin port (:9091) is only reachable from within the Docker backend network.
+    # 'api' resolves to the dzeroth-api container on the shared bridge network.
+    static_configs:
+      - targets:
+          - api:9091
+        labels:
+          service: dzeroth-api
+          component: api
+
+    metrics_path: /metrics
+    scheme: http
+
+    # Scrape every 30 seconds. The admin server handles /metrics as a fast in-memory
+    # read — no database or Redis I/O is involved in serving the metrics endpoint.
+    scrape_interval: 30s
+    scrape_timeout: 10s

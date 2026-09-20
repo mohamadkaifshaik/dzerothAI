@@ -95,6 +95,7 @@ func buildTestAPIServer(t *testing.T, pool *pgxpool.Pool, redisClient *rdb.Clien
 	r.Use(chimw.RealIP)
 	r.Use(platformMW.AccessLog(log))
 	r.Use(chimw.Recoverer)
+	r.Use(platformMW.SecurityHeaders)
 	r.Use(chimw.Timeout(30 * time.Second))
 	r.Use(httpMetrics.Middleware)
 

@@ -215,6 +215,11 @@ func run() error {
 	r.Use(chimw.RealIP)
 	r.Use(platformMW.AccessLog(log))
 	r.Use(chimw.Recoverer)
+	// SecurityHeaders adds X-Content-Type-Options, X-Frame-Options, and Referrer-Policy
+	// to every response. Applied after Recoverer so that security headers are present
+	// even on recovered panics. HSTS is intentionally omitted — it belongs at the
+	// reverse proxy (nginx/Caddy/ALB), not the application server.
+	r.Use(platformMW.SecurityHeaders)
 	r.Use(chimw.Timeout(30 * time.Second))
 	// HTTP metrics middleware records http_requests_total and
 	// http_request_duration_seconds using normalized chi route patterns as labels.

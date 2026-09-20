@@ -1,6 +1,6 @@
 # Dzeroth — Environment Strategy
 
-**Status:** `VERIFIED — Phase 8C`
+**Status:** `UPDATED — Phase 8D-4 (Docker Secrets _FILE convention added)`
 
 This document records the authoritative environment variable definitions and
 the separation strategy between local, test/CI, staging, and production
@@ -60,6 +60,33 @@ Authoritative source: `apps/backend/internal/config/config.go`.
 | `REDIS_PASSWORD` | **Yes** | `deploy/secrets/env.*` only, never committed |
 | `JWT_SECRET` | **Yes** | `deploy/secrets/env.*` only, never committed |
 | All others | No | `deploy/secrets/env.*` or compose `environment:` block |
+
+---
+
+## Docker Secrets `_FILE` convention
+
+For variables marked as secrets, the Go config package supports a `_FILE` suffix
+variant. When `<VAR>_FILE` is set, the secret is read from the file at that path.
+This follows the Docker Secrets standard pattern where secrets mount as files.
+
+| `_FILE` variable | Plain variable | Supported |
+|---|---|---|
+| `JWT_SECRET_FILE` | `JWT_SECRET` | Yes |
+| `POSTGRES_PASSWORD_FILE` | `POSTGRES_PASSWORD` | Yes |
+| `REDIS_PASSWORD_FILE` | `REDIS_PASSWORD` | Yes |
+
+**Precedence:** `_FILE` takes precedence over the plain env var. If both are set,
+the file value is used.
+
+**Backward compatibility:** if only the plain env var is set (current default
+deployment), it continues to work unchanged.
+
+**Opt-in for operators:** the current `docker-compose.prod.yml` uses plain env vars
+via `env_file: deploy/secrets/env.production`. Operators who want Docker Secrets
+file isolation can mount secret files and set the `_FILE` variants instead.
+
+See `secrets/README.md` for setup instructions and `docs/DEPLOYMENT_TOPOLOGY.md`
+for the Docker Secrets Compose example.
 
 ---
 

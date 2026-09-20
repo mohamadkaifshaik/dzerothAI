@@ -1,8 +1,10 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // setEnv sets a map of environment variables for the duration of a test and restores
@@ -208,5 +210,201 @@ func TestOptionalBool_Empty(t *testing.T) {
 	result := optionalBool("REDIS_TLS", true)
 	if !result {
 		t.Error("expected optionalBool to return default (true) for empty value")
+	}
+}
+
+// ── optionalBoolWarn ──────────────────────────────────────────────────────────
+
+func TestOptionalBoolWarn_Unparseable_ReturnsWarn(t *testing.T) {
+	t.Setenv("REDIS_TLS", "notabool")
+
+	val, warn := optionalBoolWarn("REDIS_TLS", false)
+	if val {
+		t.Error("expected optionalBoolWarn to return default false for unparseable value")
+	}
+	if warn == "" {
+		t.Error("expected optionalBoolWarn to return a non-empty warning for unparseable value")
+	}
+	if !strings.Contains(warn, "REDIS_TLS") {
+		t.Errorf("expected warning to mention the variable name, got: %q", warn)
+	}
+	if !strings.Contains(warn, "notabool") {
+		t.Errorf("expected warning to mention the invalid value, got: %q", warn)
+	}
+}
+
+func TestOptionalBoolWarn_Valid_NoWarn(t *testing.T) {
+	t.Setenv("REDIS_TLS", "true")
+
+	val, warn := optionalBoolWarn("REDIS_TLS", false)
+	if !val {
+		t.Error("expected optionalBoolWarn to return true for valid 'true' value")
+	}
+	if warn != "" {
+		t.Errorf("expected no warning for valid value, got: %q", warn)
+	}
+}
+
+func TestOptionalBoolWarn_Absent_NoWarn(t *testing.T) {
+	// Ensure the env var is not set.
+	t.Setenv("REDIS_TLS", "")
+
+	val, warn := optionalBoolWarn("REDIS_TLS", true)
+	if !val {
+		t.Error("expected optionalBoolWarn to return default (true) when var is unset")
+	}
+	if warn != "" {
+		t.Errorf("expected no warning when var is absent, got: %q", warn)
+	}
+}
+
+// ── optionalDurationWarn ──────────────────────────────────────────────────────
+
+func TestOptionalDurationWarn_Unparseable_ReturnsWarn(t *testing.T) {
+	t.Setenv("SESSION_CLEANUP_INTERVAL", "foobar")
+
+	val, warn := optionalDurationWarn("SESSION_CLEANUP_INTERVAL", time.Hour)
+	if val != time.Hour {
+		t.Errorf("expected default 1h for unparseable value, got: %v", val)
+	}
+	if warn == "" {
+		t.Error("expected a non-empty warning for unparseable duration")
+	}
+	if !strings.Contains(warn, "SESSION_CLEANUP_INTERVAL") {
+		t.Errorf("expected warning to mention the variable name, got: %q", warn)
+	}
+	if !strings.Contains(warn, "foobar") {
+		t.Errorf("expected warning to mention the invalid value, got: %q", warn)
+	}
+}
+
+func TestOptionalDurationWarn_Valid_NoWarn(t *testing.T) {
+	t.Setenv("SESSION_CLEANUP_INTERVAL", "30m")
+
+	val, warn := optionalDurationWarn("SESSION_CLEANUP_INTERVAL", time.Hour)
+	if val != 30*time.Minute {
+		t.Errorf("expected 30m for valid value, got: %v", val)
+	}
+	if warn != "" {
+		t.Errorf("expected no warning for valid value, got: %q", warn)
+	}
+}
+
+func TestOptionalDurationWarn_Absent_NoWarn(t *testing.T) {
+	t.Setenv("SESSION_CLEANUP_INTERVAL", "")
+
+	val, warn := optionalDurationWarn("SESSION_CLEANUP_INTERVAL", time.Hour)
+	if val != time.Hour {
+		t.Errorf("expected default 1h when var is absent, got: %v", val)
+	}
+	if warn != "" {
+		t.Errorf("expected no warning when var is absent, got: %q", warn)
+	}
+}
+
+// ── _FILE secret convention ───────────────────────────────────────────────────
+
+func TestLoad_JWTSecretFile(t *testing.T) {
+	// Write a secret file with a valid 32-byte secret.
+	f, err := os.CreateTemp(t.TempDir(), "jwt_secret_*.txt")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	secret := "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj" // 40 bytes
+	if _, err := f.WriteString(secret); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	vars := requiredVars()
+	// Remove JWT_SECRET and set JWT_SECRET_FILE instead.
+	delete(vars, "JWT_SECRET")
+	vars["JWT_SECRET_FILE"] = f.Name()
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with JWT_SECRET_FILE: unexpected error: %v", err)
+	}
+	if string(cfg.JWTSecret) != secret {
+		t.Errorf("JWTSecret: want %q, got %q", secret, string(cfg.JWTSecret))
+	}
+}
+
+func TestLoad_JWTSecretFilePrecedence(t *testing.T) {
+	// When both JWT_SECRET and JWT_SECRET_FILE are set, JWT_SECRET_FILE takes precedence.
+	f, err := os.CreateTemp(t.TempDir(), "jwt_secret_*.txt")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	fileSecret := "file_secret_aaaabbbbccccddddeeeeffffgggghhhh" // 43 bytes
+	if _, err := f.WriteString(fileSecret); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	vars := requiredVars()
+	vars["JWT_SECRET_FILE"] = f.Name()
+	// JWT_SECRET is also set (from requiredVars) — file should win.
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with both JWT_SECRET and JWT_SECRET_FILE: unexpected error: %v", err)
+	}
+	if string(cfg.JWTSecret) != fileSecret {
+		t.Errorf("JWTSecret: want file value %q, got %q", fileSecret, string(cfg.JWTSecret))
+	}
+}
+
+func TestLoad_JWTSecretFileMissing_FallsBackToEnv(t *testing.T) {
+	// JWT_SECRET_FILE is not set; JWT_SECRET is used.
+	vars := requiredVars()
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() without JWT_SECRET_FILE: unexpected error: %v", err)
+	}
+	if string(cfg.JWTSecret) != vars["JWT_SECRET"] {
+		t.Errorf("JWTSecret: want env value %q, got %q", vars["JWT_SECRET"], string(cfg.JWTSecret))
+	}
+}
+
+// ── Load with invalid optional vars produces warnings but succeeds ────────────
+
+func TestLoad_InvalidOptionalBool_Succeeds(t *testing.T) {
+	// An invalid REDIS_TLS value must not cause Load to fail.
+	vars := requiredVars()
+	vars["REDIS_TLS"] = "not-a-bool"
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with invalid REDIS_TLS: unexpected error: %v", err)
+	}
+	// Must use the default (false).
+	if cfg.RedisTLS {
+		t.Error("expected RedisTLS=false (default) for invalid REDIS_TLS value")
+	}
+}
+
+func TestLoad_InvalidOptionalDuration_Succeeds(t *testing.T) {
+	// An invalid SESSION_CLEANUP_INTERVAL value must not cause Load to fail.
+	vars := requiredVars()
+	vars["SESSION_CLEANUP_INTERVAL"] = "not-a-duration"
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with invalid SESSION_CLEANUP_INTERVAL: unexpected error: %v", err)
+	}
+	// Must use the default (1h).
+	if cfg.SessionCleanupInterval != time.Hour {
+		t.Errorf("expected SessionCleanupInterval=1h (default), got: %v", cfg.SessionCleanupInterval)
 	}
 }

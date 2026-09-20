@@ -77,12 +77,20 @@ USER dzeroth
 # this port through public load balancers; it serves /livez, /readyz, /metrics.
 EXPOSE 8080 9091
 
+# API_PORT matches the default in config.go (8080). Setting it as an ENV makes
+# the default explicit and allows the HEALTHCHECK to reference it via ${API_PORT}.
+# If API_PORT is overridden at runtime, override this ENV at build time via
+# --build-arg API_PORT=<port> so the HEALTHCHECK stays aligned.
+# See docs/DEPLOYMENT_TOPOLOGY.md — Healthcheck constraint.
+ARG API_PORT=8080
+ENV API_PORT=${API_PORT}
+
 # HEALTHCHECK uses the public /health endpoint which is registered on the API
 # port in all environments. /livez and /readyz are on the admin port only.
 # wget is provided by Alpine's busybox.
 # --start-period allows the binary time to connect to PostgreSQL and run migrations
 # before the first health check fires.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD wget -qO- http://localhost:${API_PORT}/health || exit 1
 
 ENTRYPOINT ["/app/api"]

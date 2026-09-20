@@ -150,6 +150,19 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [x] `integration` job added to CI (bitnami/redis with requirepass, postgis:15-3.3) (Phase 8D-1)
 - [x] API-level integration tests against real httptest.Server: register/login/GET-me flow, logout invalidates refresh, refresh valid/invalid, refresh rate-limit 429 + Retry-After, health/livez/readyz, request-ID, JWT failure WARN log, CORS allow-all and allowlist, error envelope format, PostgreSQL+HTTP chain, Redis rate-limit state created (Phase 8D-2)
 
+### Phase 8D-4 — Production Hardening
+
+- [x] PostgreSQL backup scripts: `scripts/backup/pg_backup.sh` (pg_dump + gzip, env-var credentials, timestamped output), `scripts/backup/pg_restore.sh` (destructive restore with confirmation prompt). Documentation: `docs/BACKUP_RECOVERY.md` (manual run, cron schedule, retention, step-by-step restore, monthly drill)
+- [x] Nginx reference reverse proxy config: `nginx/nginx.prod.conf` — TLS termination, `proxy_set_header X-Real-IP $remote_addr` (no client header trust), HTTP→HTTPS redirect, proxy timeouts matching API handler timeout, HSTS at proxy layer. Trusted-proxy topology documented in `docs/DEPLOYMENT_TOPOLOGY.md`
+- [x] Docker Secrets `_FILE` convention: config.go supports `JWT_SECRET_FILE`, `POSTGRES_PASSWORD_FILE`, `REDIS_PASSWORD_FILE` — reads secret from file when `_FILE` variant is set; plain env var used when `_FILE` is absent (backward compatible). `secrets/` directory gitignored. `secrets/README.md` documents secret file creation and format
+- [x] Monitoring documentation: `docs/MONITORING.md` — all registered metrics listed, key alert recommendations (error rate, p99 latency, `dzeroth_redis_up`, DB pool saturation, auth failure rate), reference `monitoring/prometheus.yml` scrape config
+- [x] Migration ownership policy: `docs/DATABASE_MIGRATION_POLICY.md` — current single-instance behavior, advisory lock semantics, horizontal scaling mitigation options (dedicated job, golang-migrate CLI, expand/contract)
+- [x] Dockerfile healthcheck port: `ARG API_PORT=8080` + `ENV API_PORT` added; HEALTHCHECK uses `${API_PORT}` variable. Documents the runtime override limitation
+- [x] Compose graceful shutdown: `stop_grace_period: 20s` added to API service in both `docker-compose.prod.yml` and `docker-compose.staging.yml` (buffer above Go API's 15s shutdown timeout)
+- [x] Redis error counter assessment: `dzeroth_redis_errors_total` left dormant — wiring requires adding `*InfraMetrics` to `RateLimitMiddleware` signature (non-trivial signature change). Documented in `docs/MONITORING.md`
+- [x] Invalid optional env var warnings: `optionalBoolWarn` and `optionalDurationWarn` emit WARN to stderr when a variable is set but unparseable. `REDIS_TLS` and `SESSION_CLEANUP_INTERVAL` use warn variants. Tests added in `config_test.go`
+- [x] Security response headers middleware: `internal/platform/middleware/security_headers.go` — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. Wired into `cmd/api/main.go` after Recoverer. Unit tests in `security_headers_test.go`. Integration test assertion in `api_test.go`
+
 ## Rule
 
 Do not skip phases merely because a feature appears small. Cross-layer work must be traced from UI to API to persistence and back.

@@ -603,6 +603,38 @@ func TestAPI_PostgreSQL_GetMe_ReturnsPersistedData(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Security headers
+// ---------------------------------------------------------------------------
+
+// TestAPI_SecurityHeaders_PresentOnHealthResponse verifies that the SecurityHeaders
+// middleware is wired into the production middleware chain and sets the required
+// headers on real HTTP responses.
+func TestAPI_SecurityHeaders_PresentOnHealthResponse(t *testing.T) {
+	pool := connectTestDB(t)
+	redisClient := connectTestRedis(t)
+	srv := buildTestAPIServer(t, pool, redisClient, nil)
+
+	resp := doJSON(t, http.MethodGet, srv.url("/health"), nil, nil)
+	defer resp.Body.Close()
+
+	securityHeaders := []struct {
+		name string
+		want string
+	}{
+		{"X-Content-Type-Options", "nosniff"},
+		{"X-Frame-Options", "DENY"},
+		{"Referrer-Policy", "no-referrer"},
+	}
+
+	for _, h := range securityHeaders {
+		got := resp.Header.Get(h.name)
+		if got != h.want {
+			t.Errorf("security header %s: want %q, got %q", h.name, h.want, got)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Redis + HTTP integration
 // ---------------------------------------------------------------------------
 
