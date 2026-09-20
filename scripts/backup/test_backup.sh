@@ -260,6 +260,32 @@ else
     fail "--confirm flag: unexpected error output: ${CONFIRM_OUTPUT}"
 fi
 
+# ── Test 11: compose_exec does not pass --env-file to docker compose exec ──────
+#
+# Root cause guard: passing --env-file to `docker compose exec` fails under
+# root/systemd when the system-installed Docker Compose version predates the
+# --env-file global flag (v2.2.x). For exec the flag is not needed — the
+# container's environment is already set from startup. This test confirms the
+# flag was not re-introduced.
+echo ""
+echo "=== Test group: compose_exec --env-file absence ==="
+
+# Check pg_backup.sh: no non-comment line in compose_exec should contain --env-file.
+BACKUP_ENV_FILE_LINES="$(grep -n "\-\-env-file" "${BACKUP_SCRIPT}" | grep -v "^[0-9]*:[[:space:]]*#" || true)"
+if [[ -z "${BACKUP_ENV_FILE_LINES}" ]]; then
+    pass "pg_backup.sh: compose_exec does not pass --env-file to docker compose exec"
+else
+    fail "pg_backup.sh: --env-file found in non-comment lines: ${BACKUP_ENV_FILE_LINES}"
+fi
+
+# Check pg_restore.sh: same guard.
+RESTORE_ENV_FILE_LINES="$(grep -n "\-\-env-file" "${RESTORE_SCRIPT}" | grep -v "^[0-9]*:[[:space:]]*#" || true)"
+if [[ -z "${RESTORE_ENV_FILE_LINES}" ]]; then
+    pass "pg_restore.sh: compose_exec does not pass --env-file to docker compose exec"
+else
+    fail "pg_restore.sh: --env-file found in non-comment lines: ${RESTORE_ENV_FILE_LINES}"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "========================================"

@@ -99,8 +99,13 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
 fi
 
 # ── Compose exec helper ───────────────────────────────────────────────────────
+# Runs a command inside the already-running postgres container.
+# --env-file is intentionally NOT passed — see pg_backup.sh for full rationale.
+# Summary: exec operates on an already-running container; PGPASSWORD is already
+# in the container's environment from startup. --env-file is not supported by
+# older Docker Compose v2 versions installed at the system level.
 compose_exec() {
-    docker compose --env-file "${SECRETS_FILE}" -f "${COMPOSE_FILE}" \
+    docker compose -f "${COMPOSE_FILE}" \
         exec -T "${POSTGRES_SERVICE}" "$@"
 }
 

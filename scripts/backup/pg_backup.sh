@@ -104,9 +104,21 @@ cleanup() {
 trap cleanup EXIT
 
 # ── Compose exec helper ───────────────────────────────────────────────────────
-# All docker compose invocations use the same flags.
+# Runs a command inside the already-running postgres container.
+#
+# --env-file is intentionally NOT passed here. That flag controls Compose
+# variable substitution at service-startup time; it is not needed for exec
+# because the container is already running with its full environment injected
+# by the `env_file:` directive in docker-compose.prod.yml. pg_dump reads
+# PGPASSWORD from the container's own running environment — the host script
+# never handles the database password.
+#
+# Excluding --env-file also ensures compatibility across Docker Compose v2
+# versions: --env-file as a global compose flag was added in v2.2.x and is
+# absent from older system-installed versions. Passing it to those versions
+# causes the Docker CLI itself to reject it with "unknown flag: --env-file".
 compose_exec() {
-    docker compose --env-file "${SECRETS_FILE}" -f "${COMPOSE_FILE}" \
+    docker compose -f "${COMPOSE_FILE}" \
         exec -T "${POSTGRES_SERVICE}" "$@"
 }
 
