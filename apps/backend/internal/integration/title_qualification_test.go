@@ -479,7 +479,6 @@ func TestQualification_NicheGuruTech_MultiTagDedup(t *testing.T) {
 	pool := connectTestDB(t)
 	ctx := context.Background()
 	repo := title.NewRepository(pool)
-	eng := newQualificationEngine(repo)
 
 	userID := newTitleTestUser(ctx, t, pool)
 
