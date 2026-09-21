@@ -78,6 +78,19 @@ type TitleSummary struct {
 	DisplayName string
 }
 
+// UserTitleEntry is returned by Repository.GetUserTitles. It combines a
+// UserTitle row with the joined title definition display fields (Slug,
+// DisplayName, Category, IsRevocable) needed to build UserTitleDTO responses
+// without N+1 queries in the service layer. Exported so service and
+// integration-test code outside this package can consume it.
+type UserTitleEntry struct {
+	UserTitle
+	Slug        string
+	DisplayName string
+	Category    TitleCategory
+	IsRevocable bool
+}
+
 // TitleStatusUpdate carries the fields to apply to a user_titles row via
 // UpdateUserTitleStatus. Status is always required. Nil pointer fields are
 // left unchanged by the database (via COALESCE). Used by the qualification

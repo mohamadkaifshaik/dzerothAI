@@ -82,7 +82,7 @@ func (r *Repository) GetDefinitionBySlug(ctx context.Context, slug string) (*Tit
 // GetUserTitles returns the active and grace_period user_titles rows for the
 // given user, joined with their title definition for display fields.
 // Revoked titles are excluded. Ordered by unlocked_at ASC (oldest first).
-func (r *Repository) GetUserTitles(ctx context.Context, userID uuid.UUID) ([]userTitleRow, error) {
+func (r *Repository) GetUserTitles(ctx context.Context, userID uuid.UUID) ([]UserTitleEntry, error) {
 	const q = `
 		SELECT
 			ut.id, ut.user_id, ut.title_definition_id, ut.status,
@@ -101,7 +101,7 @@ func (r *Repository) GetUserTitles(ctx context.Context, userID uuid.UUID) ([]use
 	}
 	defer rows.Close()
 
-	var result []userTitleRow
+	var result []UserTitleEntry
 	for rows.Next() {
 		row, err := scanUserTitleRow(rows)
 		if err != nil {
@@ -313,16 +313,6 @@ func (r *Repository) getActiveUserTitleByDefinition(ctx context.Context, userID,
 	return &ut, nil
 }
 
-// userTitleRow is used by GetUserTitles to carry the joined definition display
-// fields alongside the user_titles row. Not exported; callers receive DTOs.
-type userTitleRow struct {
-	UserTitle
-	Slug        string
-	DisplayName string
-	Category    TitleCategory
-	IsRevocable bool
-}
-
 // scanDefinition scans a single title_definitions row.
 func scanDefinition(row pgx.Row) (TitleDefinition, error) {
 	var d TitleDefinition
@@ -360,8 +350,8 @@ func scanUserTitle(row pgx.Row) (UserTitle, error) {
 
 // scanUserTitleRow scans a user_titles JOIN title_definitions row as returned
 // by GetUserTitles.
-func scanUserTitleRow(rows pgx.Rows) (userTitleRow, error) {
-	var r userTitleRow
+func scanUserTitleRow(rows pgx.Rows) (UserTitleEntry, error) {
+	var r UserTitleEntry
 	err := rows.Scan(
 		&r.ID,
 		&r.UserID,
