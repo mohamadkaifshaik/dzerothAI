@@ -78,9 +78,12 @@ func (r *Repository) ListHomeTimeline(
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.author_id IN (
 				SELECT followed_id FROM follows WHERE follower_id = $1
 			)
@@ -103,9 +106,12 @@ func (r *Repository) ListHomeTimeline(
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.author_id IN (
 				SELECT followed_id FROM follows WHERE follower_id = $1
 			)

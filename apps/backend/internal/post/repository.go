@@ -88,9 +88,12 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (Post, error) {
 			p.id, p.author_id, p.post_type, p.content,
 			p.parent_id, p.thread_root_id, p.quoted_post_id,
 			p.is_deleted, p.created_at, p.updated_at,
-			u.id, u.handle, u.display_name, u.avatar_url
+			u.id, u.handle, u.display_name, u.avatar_url,
+			td.slug, td.display_name
 		FROM posts p
 		JOIN users u ON u.id = p.author_id
+		LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+		LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 		WHERE p.id = $1`
 
 	row := r.pool.QueryRow(ctx, q, id)
@@ -123,9 +126,12 @@ func (r *Repository) ListByAuthor(ctx context.Context, authorID uuid.UUID, curso
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.author_id = $1
 			  AND p.is_deleted = FALSE
 			ORDER BY p.created_at DESC, p.id DESC
@@ -137,9 +143,12 @@ func (r *Repository) ListByAuthor(ctx context.Context, authorID uuid.UUID, curso
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.author_id = $1
 			  AND p.is_deleted = FALSE
 			  AND (p.created_at, p.id) < ($2, $3)
@@ -177,9 +186,12 @@ func (r *Repository) ListThreadReplies(ctx context.Context, threadRootID uuid.UU
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.thread_root_id = $1
 			  AND p.is_deleted = FALSE
 			ORDER BY p.created_at ASC, p.id ASC
@@ -191,9 +203,12 @@ func (r *Repository) ListThreadReplies(ctx context.Context, threadRootID uuid.UU
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.thread_root_id = $1
 			  AND p.is_deleted = FALSE
 			  AND (p.created_at, p.id) > ($2, $3)
@@ -279,10 +294,13 @@ func (r *Repository) ListByHashtag(ctx context.Context, tag string, cursor *Feed
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
 			JOIN post_hashtags ph ON ph.post_id = p.id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE ph.tag = $1
 			  AND p.is_deleted = FALSE
 			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
@@ -295,10 +313,13 @@ func (r *Repository) ListByHashtag(ctx context.Context, tag string, cursor *Feed
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM posts p
 			JOIN users u ON u.id = p.author_id
 			JOIN post_hashtags ph ON ph.post_id = p.id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE ph.tag = $1
 			  AND p.is_deleted = FALSE
 			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
@@ -348,10 +369,29 @@ func ScanPostRows(rows pgx.Rows) ([]Post, error) {
 	return collectRows(rows)
 }
 
-// scanPost scans a single row from a posts JOIN users query.
+// scanPost scans a single row from a posts JOIN users LEFT JOIN title_definitions query.
+// Column order (16 total):
+//  1. p.id
+//  2. p.author_id
+//  3. p.post_type
+//  4. p.content
+//  5. p.parent_id
+//  6. p.thread_root_id
+//  7. p.quoted_post_id
+//  8. p.is_deleted
+//  9. p.created_at
+//  10. p.updated_at
+//  11. u.id
+//  12. u.handle
+//  13. u.display_name
+//  14. u.avatar_url
+//  15. td.slug        (nullable — NULL when no primary title)
+//  16. td.display_name (nullable — NULL when no primary title)
 func scanPost(row pgx.Row) (Post, error) {
 	var p Post
 	var authorID string
+	var titleSlug *string
+	var titleDisplayName *string
 	err := row.Scan(
 		&p.ID,
 		&p.AuthorID,
@@ -367,20 +407,30 @@ func scanPost(row pgx.Row) (Post, error) {
 		&p.Author.Handle,
 		&p.Author.DisplayName,
 		&p.Author.AvatarURL,
+		&titleSlug,
+		&titleDisplayName,
 	)
 	if err != nil {
 		return Post{}, err
 	}
 	p.Author.ID = authorID
+	if titleSlug != nil && titleDisplayName != nil {
+		p.Author.PrimaryTitle = &PostAuthorTitle{
+			Slug:        *titleSlug,
+			DisplayName: *titleDisplayName,
+		}
+	}
 	return p, nil
 }
 
-// collectRows scans all rows from a posts JOIN users query.
+// collectRows scans all rows from a posts JOIN users LEFT JOIN title_definitions query.
 func collectRows(rows pgx.Rows) ([]Post, error) {
 	var posts []Post
 	for rows.Next() {
 		var p Post
 		var authorID string
+		var titleSlug *string
+		var titleDisplayName *string
 		err := rows.Scan(
 			&p.ID,
 			&p.AuthorID,
@@ -396,11 +446,19 @@ func collectRows(rows pgx.Rows) ([]Post, error) {
 			&p.Author.Handle,
 			&p.Author.DisplayName,
 			&p.Author.AvatarURL,
+			&titleSlug,
+			&titleDisplayName,
 		)
 		if err != nil {
 			return nil, err
 		}
 		p.Author.ID = authorID
+		if titleSlug != nil && titleDisplayName != nil {
+			p.Author.PrimaryTitle = &PostAuthorTitle{
+				Slug:        *titleSlug,
+				DisplayName: *titleDisplayName,
+			}
+		}
 		posts = append(posts, p)
 	}
 	if err := rows.Err(); err != nil {

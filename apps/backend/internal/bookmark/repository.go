@@ -77,10 +77,13 @@ func (r *Repository) ListByUser(ctx context.Context, userID uuid.UUID, cursor *p
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM bookmarks b
 			JOIN posts p ON p.id = b.post_id
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE b.user_id = $1
 			  AND p.is_deleted = FALSE
 			ORDER BY b.created_at DESC, b.post_id DESC
@@ -93,10 +96,13 @@ func (r *Repository) ListByUser(ctx context.Context, userID uuid.UUID, cursor *p
 				p.id, p.author_id, p.post_type, p.content,
 				p.parent_id, p.thread_root_id, p.quoted_post_id,
 				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url
+				u.id, u.handle, u.display_name, u.avatar_url,
+				td.slug, td.display_name
 			FROM bookmarks b
 			JOIN posts p ON p.id = b.post_id
 			JOIN users u ON u.id = p.author_id
+			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE b.user_id = $1
 			  AND p.is_deleted = FALSE
 			  AND (b.created_at < $2 OR (b.created_at = $2 AND b.post_id < $3))
@@ -117,22 +123,29 @@ func (r *Repository) ListByUser(ctx context.Context, userID uuid.UUID, cursor *p
 	return buildBookmarkPage(items, max)
 }
 
-// collectBookmarkRows scans all rows from a bookmarks JOIN posts JOIN users query.
-// The bookmark columns (user_id, post_id, b.created_at) are scanned first, then
-// the post and author columns are scanned manually following the same column order
-// as post.collectRows. We cannot call post.ScanPostRows directly because the
-// bookmark query has additional leading columns that offset the scan positions.
+// collectBookmarkRows scans all rows from a bookmarks JOIN posts JOIN users
+// LEFT JOIN title_definitions query.
+// Column order (19 total):
+//  1-3:   b.user_id, b.post_id, b.created_at  (bookmark)
+//  4-13:  p.id … p.updated_at                 (post, 10 columns)
+//  14-17: u.id, u.handle, u.display_name, u.avatar_url (user)
+//  18-19: td.slug, td.display_name             (title, nullable)
+//
+// We cannot call post.ScanPostRows directly because the bookmark query has
+// additional leading columns that offset the scan positions.
 func collectBookmarkRows(rows pgx.Rows) ([]bookmarkWithPost, error) {
 	var items []bookmarkWithPost
 	for rows.Next() {
 		var bwp bookmarkWithPost
 		var authorID string
+		var titleSlug *string
+		var titleDisplayName *string
 		err := rows.Scan(
-			// bookmark columns
+			// bookmark columns (3)
 			&bwp.UserID,
 			&bwp.PostID,
 			&bwp.BookmarkCreatedAt,
-			// post columns
+			// post columns (10)
 			&bwp.Post.ID,
 			&bwp.Post.AuthorID,
 			&bwp.Post.PostType,
@@ -143,16 +156,25 @@ func collectBookmarkRows(rows pgx.Rows) ([]bookmarkWithPost, error) {
 			&bwp.Post.IsDeleted,
 			&bwp.Post.CreatedAt,
 			&bwp.Post.UpdatedAt,
-			// user columns
+			// user columns (4)
 			&authorID,
 			&bwp.Post.Author.Handle,
 			&bwp.Post.Author.DisplayName,
 			&bwp.Post.Author.AvatarURL,
+			// title columns (2, nullable)
+			&titleSlug,
+			&titleDisplayName,
 		)
 		if err != nil {
 			return nil, err
 		}
 		bwp.Post.Author.ID = authorID
+		if titleSlug != nil && titleDisplayName != nil {
+			bwp.Post.Author.PrimaryTitle = &post.PostAuthorTitle{
+				Slug:        *titleSlug,
+				DisplayName: *titleDisplayName,
+			}
+		}
 		items = append(items, bwp)
 	}
 	if err := rows.Err(); err != nil {

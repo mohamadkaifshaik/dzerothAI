@@ -44,12 +44,24 @@ type Post struct {
 	Author PostAuthor
 }
 
+// PostAuthorTitle is the minimal title badge included in a PostAuthor block.
+// It carries only the display fields required to render a title badge in post
+// author blocks. This type is local to the post package to avoid an import
+// cycle between post ↔ title (title → notification → post). The fields are
+// identical to title.TitleSummaryDTO.
+type PostAuthorTitle struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"display_name"`
+}
+
 // PostAuthor holds the minimal author fields joined from the users table.
+// PrimaryTitle is nil when the author has no primary title set.
 type PostAuthor struct {
-	ID          string
-	Handle      string
-	DisplayName string
-	AvatarURL   *string
+	ID           string
+	Handle       string
+	DisplayName  string
+	AvatarURL    *string
+	PrimaryTitle *PostAuthorTitle
 }
 
 // PostDTO is the public response struct for a single post.
