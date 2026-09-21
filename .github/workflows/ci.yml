@@ -7,12 +7,12 @@ on:
     branches: [main]
 
 # Minimum required permissions for all jobs.
-# actions: write is required for setup-go, flutter-action, and docker buildx
-#          to save caches via the GitHub Actions cache API.
+# actions/checkout requires contents: read.
+# Cache operations (setup-go, flutter-action, docker buildx type=gha) use
+# ACTIONS_RUNTIME_TOKEN — independent of GITHUB_TOKEN permissions.
 # No job pushes to a registry, modifies the repository, or creates issues/PRs.
 permissions:
   contents: read
-  actions: write
 
 jobs:
   backend:
