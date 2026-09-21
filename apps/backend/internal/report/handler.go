@@ -55,6 +55,12 @@ func (h *Handler) reportPost(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -84,6 +90,12 @@ func (h *Handler) reportUser(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return

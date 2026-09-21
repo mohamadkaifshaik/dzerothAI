@@ -84,6 +84,12 @@ func (h *Handler) updateMe(w http.ResponseWriter, r *http.Request) {
 
 	var input UpdateProfileInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -135,6 +141,12 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 		IsPrivate bool `json:"is_private"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return

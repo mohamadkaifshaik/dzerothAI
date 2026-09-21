@@ -70,6 +70,12 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		Password    string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -97,6 +103,12 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -122,6 +134,12 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return

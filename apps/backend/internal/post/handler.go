@@ -92,6 +92,12 @@ func (h *Handler) createPost(w http.ResponseWriter, r *http.Request) {
 
 	var req CreatePostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return

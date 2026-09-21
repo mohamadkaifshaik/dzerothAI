@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -122,6 +123,12 @@ func (h *testableHandler) createPost(w http.ResponseWriter, r *http.Request) {
 
 	var req CreatePostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -588,6 +595,52 @@ func TestGetPostHandler_ViewerHasReacted_Unauthenticated(t *testing.T) {
 	body := rec.Body.String()
 	if strings.Contains(body, "viewer_has_reacted") {
 		t.Errorf("unauthenticated response must not contain viewer_has_reacted, got: %s", body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestGetPostHandler_ViewerHasReacted_Authenticated
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// TestCreatePostHandler_BodyTooLarge
+// ---------------------------------------------------------------------------
+
+// TestCreatePostHandler_BodyTooLarge verifies that POST /posts with a body
+// exceeding the application limit returns 413 with a VALIDATION_ERROR envelope.
+// The test uses http.MaxBytesReader to simulate what the global middleware does.
+func TestCreatePostHandler_BodyTooLarge(t *testing.T) {
+	const bodyLimit = int64(1 << 20) // 1 MiB — mirrors cmd/api maxRequestBodyBytes
+
+	h := newTestableHandler(&fakeService{})
+
+	// Build a valid JSON object whose encoded size exceeds 1 MiB. The decoder
+	// must begin reading valid JSON before hitting the limit so that
+	// *http.MaxBytesError is returned (not a syntax error).
+	oversized := map[string]string{"content": strings.Repeat("a", int(bodyLimit)+100)}
+	oversizedBody, _ := json.Marshal(oversized)
+
+	userID := uuid.New()
+	req := makeAuthedRequest(t, http.MethodPost, "/posts", oversizedBody, userID)
+	rec := httptest.NewRecorder()
+
+	// Simulate the global LimitRequestBody middleware by wrapping the body.
+	req.Body = http.MaxBytesReader(rec, req.Body, bodyLimit)
+
+	auth.JWTMiddleware(testJWTSecret, zap.NewNop())(http.HandlerFunc(h.createPost)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413 for oversized body", rec.Code)
+	}
+	var resp apierror.ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal error response: %v\nbody: %s", err, rec.Body.Bytes())
+	}
+	if resp.Error.Code != apierror.CodeValidation {
+		t.Errorf("error code = %q, want %q", resp.Error.Code, apierror.CodeValidation)
+	}
+	if resp.Error.Message != "Request body too large." {
+		t.Errorf("message = %q, want %q", resp.Error.Message, "Request body too large.")
 	}
 }
 

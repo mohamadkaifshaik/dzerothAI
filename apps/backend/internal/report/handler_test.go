@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -61,6 +62,12 @@ func (h *testReportHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 	var req CreateReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -85,6 +92,12 @@ func (h *testReportHandler) handleUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var req CreateReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			apierror.Render(w, http.StatusRequestEntityTooLarge,
+				apierror.New(apierror.CodeValidation, "Request body too large."))
+			return
+		}
 		apierror.Render(w, http.StatusBadRequest,
 			apierror.New(apierror.CodeValidation, "Invalid JSON body."))
 		return
@@ -189,6 +202,51 @@ func TestReportPostHandler_ValidRequest_Returns204(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("expected empty body, got: %s", rec.Body.String())
+	}
+}
+
+// TestReportPostHandler_BodyTooLarge_Returns413 verifies that a report request
+// whose body exceeds the application body size limit returns 413 with a
+// VALIDATION_ERROR envelope containing "Request body too large.".
+func TestReportPostHandler_BodyTooLarge_Returns413(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	postID := uuid.New()
+
+	h := &testReportHandler{svc: &stubSvc{}, logger: zap.NewNop()}
+
+	r := chi.NewRouter()
+	r.With(auth.JWTMiddleware(testJWTSecret, zap.NewNop())).Post("/posts/{postID}/report", h.handlePost)
+
+	// Build a valid JSON object that exceeds 1 MiB. The JSON decoder must start
+	// reading valid JSON before hitting MaxBytesReader so that *http.MaxBytesError
+	// is returned rather than a syntax error.
+	payload := map[string]string{"p": strings.Repeat("a", (1<<20)+100)}
+	oversizedBody, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/posts/%s/report", postID),
+		bytes.NewReader(oversizedBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", bearerToken(t, userID))
+
+	rec := httptest.NewRecorder()
+	// Simulate the global LimitRequestBody middleware.
+	req.Body = http.MaxBytesReader(rec, req.Body, 1<<20)
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var errResp apierror.ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp.Error.Code != apierror.CodeValidation {
+		t.Fatalf("expected VALIDATION_ERROR, got: %s", errResp.Error.Code)
+	}
+	if errResp.Error.Message != "Request body too large." {
+		t.Fatalf("expected message %q, got %q", "Request body too large.", errResp.Error.Message)
 	}
 }
 

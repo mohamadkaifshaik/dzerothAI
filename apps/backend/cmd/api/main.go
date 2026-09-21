@@ -53,6 +53,12 @@ import (
 // cleanup cycle. Bounded batches prevent long-duration locks on large tables.
 const sessionCleanupBatchSize = 500
 
+// maxRequestBodyBytes is the application-level request body size limit (1 MiB).
+// Applied as a global middleware so no single request body can grow unbounded
+// regardless of Content-Length. Handlers that decode a body must check for
+// *http.MaxBytesError and return 413 Request Entity Too Large.
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
 func main() {
 	if err := run(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
@@ -215,6 +221,16 @@ func run() error {
 	r.Use(chimw.RealIP)
 	r.Use(platformMW.AccessLog(log))
 	r.Use(chimw.Recoverer)
+	// LimitRequestBody wraps every request body with http.MaxBytesReader so
+	// that no handler can read more than maxRequestBodyBytes (1 MiB). Applied
+	// after Recoverer so recovered panics are unaffected, and before
+	// SecurityHeaders so the 413 response still carries security headers.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			req.Body = http.MaxBytesReader(w, req.Body, maxRequestBodyBytes)
+			next.ServeHTTP(w, req)
+		})
+	})
 	// SecurityHeaders adds X-Content-Type-Options, X-Frame-Options, and Referrer-Policy
 	// to every response. Applied after Recoverer so that security headers are present
 	// even on recovered panics. HSTS is intentionally omitted — it belongs at the
