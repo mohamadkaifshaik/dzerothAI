@@ -46,6 +46,7 @@ import (
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/report"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/search"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/studio"
+	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/title"
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/user"
 )
 
@@ -323,6 +324,24 @@ func run() error {
 		defer workerWG.Done()
 		cleanupWorker.Run(workerCtx)
 		log.Info("session cleanup worker stopped")
+	}()
+
+	// Title qualification worker: periodically evaluates all users for title
+	// qualification and reconciles lifecycle state (active → grace_period →
+	// revoked, and grace_period → active restores). Non-critical — per-user
+	// errors are logged at Warn and the pass continues.
+	titleRepo := title.NewRepository(pool)
+	titleEngine := title.NewEngine(titleRepo, log)
+	titleWorker := title.NewTitleQualificationWorker(
+		titleEngine,
+		titleRepo,
+		title.WorkerConfig{Interval: cfg.TitleWorkerInterval},
+		log,
+	)
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		titleWorker.Run(workerCtx)
 	}()
 
 	serverErr := make(chan error, 2)

@@ -71,6 +71,11 @@ type Config struct {
 	// expired session rows from PostgreSQL. Accepts any Go duration string
 	// (e.g. "1h", "30m"). Default: 1 hour.
 	SessionCleanupInterval time.Duration
+
+	// TitleWorkerInterval controls how often the title qualification worker runs
+	// a full reconciliation pass over all users. Accepts any Go duration string
+	// (e.g. "5m", "10m"). Default: 5 minutes.
+	TitleWorkerInterval time.Duration
 }
 
 // Warnings collects non-fatal startup warnings about configuration issues.
@@ -165,6 +170,12 @@ func Load() (*Config, error) {
 		warns = append(warns, warn)
 	}
 
+	// Optional duration: warn if set but invalid. Default: 5 minutes.
+	titleWorkerInterval, warn := optionalDurationWarn("TITLE_WORKER_INTERVAL", 5*time.Minute)
+	if warn != "" {
+		warns = append(warns, warn)
+	}
+
 	// Print startup warnings to stderr. These are non-fatal; the default is used.
 	for _, w := range warns {
 		_, _ = fmt.Fprintf(os.Stderr, "WARN config: %s\n", w)
@@ -183,6 +194,7 @@ func Load() (*Config, error) {
 		RedisPassword:          redisPassword,
 		RedisTLS:               redisTLS,
 		SessionCleanupInterval: sessionInterval,
+		TitleWorkerInterval:    titleWorkerInterval,
 	}, nil
 }
 

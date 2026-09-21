@@ -348,6 +348,105 @@ func (r *Repository) GetNicheMetrics(ctx context.Context, userID uuid.UUID, tags
 	return posts, likes, nil
 }
 
+// GetUserIDsBatch returns up to limit user IDs with id > afterID, ordered by
+// id ASC. Pass uuid.Nil as afterID to start from the beginning. Used by the
+// TitleQualificationWorker to iterate all users in deterministic cursor batches
+// without loading all user IDs into memory at once.
+func (r *Repository) GetUserIDsBatch(ctx context.Context, afterID uuid.UUID, limit int) ([]uuid.UUID, error) {
+	const q = `SELECT id FROM users WHERE id > $1 ORDER BY id ASC LIMIT $2`
+	rows, err := r.pool.Query(ctx, q, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("title: get user ids batch query: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("title: get user ids batch scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("title: get user ids batch rows: %w", err)
+	}
+	return ids, nil
+}
+
+// EnterGracePeriod transitions a user_titles row from active → grace_period.
+// Returns ErrNotFound if no active row with the given ID exists (the WHERE
+// status='active' guard prevents accidental double-application).
+func (r *Repository) EnterGracePeriod(ctx context.Context, userTitleID uuid.UUID, endsAt time.Time) error {
+	const q = `
+		UPDATE user_titles
+		SET status = 'grace_period', grace_period_ends_at = $2
+		WHERE id = $1 AND status = 'active'`
+
+	tag, err := r.pool.Exec(ctx, q, userTitleID, endsAt)
+	if err != nil {
+		return fmt.Errorf("title: enter grace period: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RestoreGracePeriodTitle transitions a user_titles row from grace_period → active.
+// Returns ErrNotFound if no grace_period row with the given ID exists.
+func (r *Repository) RestoreGracePeriodTitle(ctx context.Context, userTitleID uuid.UUID) error {
+	const q = `
+		UPDATE user_titles
+		SET status = 'active', grace_period_ends_at = NULL
+		WHERE id = $1 AND status = 'grace_period'`
+
+	tag, err := r.pool.Exec(ctx, q, userTitleID)
+	if err != nil {
+		return fmt.Errorf("title: restore grace period title: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RevokeUserTitleTx atomically revokes a user_titles row and conditionally
+// clears users.primary_title_id if it currently references that exact row.
+// The second UPDATE is conditional — it only sets primary_title_id=NULL when
+// the user's current primary matches userTitleID, leaving other primary titles
+// untouched.
+func (r *Repository) RevokeUserTitleTx(ctx context.Context, userTitleID, userID uuid.UUID, revokedAt time.Time) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("title: revoke user title begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const revokeQ = `UPDATE user_titles SET status = 'revoked', revoked_at = $2 WHERE id = $1`
+	tag, err := tx.Exec(ctx, revokeQ, userTitleID, revokedAt)
+	if err != nil {
+		return fmt.Errorf("title: revoke user title update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	// Conditionally clear primary_title_id only when it points at the revoked row.
+	const clearPrimaryQ = `
+		UPDATE users
+		SET primary_title_id = NULL
+		WHERE id = $1 AND primary_title_id = $2`
+	if _, err := tx.Exec(ctx, clearPrimaryQ, userID, userTitleID); err != nil {
+		return fmt.Errorf("title: revoke user title clear primary: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("title: revoke user title commit: %w", err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // unexported helpers
 // ---------------------------------------------------------------------------
