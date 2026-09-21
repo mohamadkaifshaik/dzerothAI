@@ -15,6 +15,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -83,27 +84,60 @@ func TestWorker_ActiveToGrace(t *testing.T) {
 
 // TestWorker_GraceToActive verifies that a grace_period title is restored to
 // active when the user re-qualifies during the grace window.
+//
+// Uses niche_guru_tech (is_revocable=true) so the worker lifecycle branch for
+// grace_period → active is exercised. Centurion is a permanent (is_revocable=false)
+// title; the worker intentionally skips lifecycle reconciliation for permanent
+// titles. 16 posts with #tech hashtag and 1 like each satisfy the niche_guru_tech
+// qualification threshold cheaply.
 func TestWorker_GraceToActive(t *testing.T) {
 	pool := connectTestDB(t)
 	ctx := context.Background()
 	repo := title.NewRepository(pool)
 
-	// Create a user who qualifies for centurion (100 posts).
+	// Create a user who qualifies for niche_guru_tech:
+	// >15 posts tagged #tech, each with >5% engagement (1 like per post = 6.25%).
 	userID := newTitleTestUser(ctx, t, pool)
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 16; i++ {
+		postID := uuid.New()
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO posts (id, author_id, post_type, content, is_deleted, created_at, updated_at)
 			 VALUES ($1, $2, 'original', $3, FALSE, now(), now())`,
-			uuid.New(), userID, "Post content",
+			postID, userID, fmt.Sprintf("Tech post %d #tech", i),
 		); err != nil {
 			t.Fatalf("insert post %d: %v", i, err)
 		}
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO post_hashtags (post_id, tag) VALUES ($1, 'tech')`,
+			postID,
+		); err != nil {
+			t.Fatalf("insert hashtag %d: %v", i, err)
+		}
+		// 1 like per post from a unique reactor.
+		reactorID := uuid.New()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO users (id, handle, display_name, email, password_hash)
+			 VALUES ($1, $2, 'Reactor', $3, $4)`,
+			reactorID,
+			fmt.Sprintf("gta_%s_%d", reactorID.String()[:6], i),
+			fmt.Sprintf("gta_%s_%d@example.com", reactorID.String()[:6], i),
+			"$2a$12$placeholderhashforintegrationtestonly0000000000000000",
+		); err != nil {
+			t.Fatalf("insert reactor %d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO reactions (user_id, post_id, reaction_type, created_at)
+			 VALUES ($1, $2, 'like', now())`,
+			reactorID, postID,
+		); err != nil {
+			t.Fatalf("insert reaction %d: %v", i, err)
+		}
 	}
 
-	// Create an active centurion title, then force it into grace_period via SQL.
-	ut, err := repo.CreateUserTitle(ctx, userID, defCenturion)
+	// Create an active niche_guru_tech title, then force it into grace_period via SQL.
+	ut, err := repo.CreateUserTitle(ctx, userID, defNicheGuruTech)
 	if err != nil {
-		t.Fatalf("CreateUserTitle centurion: %v", err)
+		t.Fatalf("CreateUserTitle niche_guru_tech: %v", err)
 	}
 
 	endsAt := time.Now().UTC().Add(24 * time.Hour) // still within window
@@ -117,7 +151,7 @@ func TestWorker_GraceToActive(t *testing.T) {
 	w := newWorker(repo)
 	w.RunOnce(ctx)
 
-	// Should be restored to active since user qualifies.
+	// Should be restored to active since user qualifies for niche_guru_tech.
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
 	if err != nil {
 		t.Fatalf("GetUserTitleForOwnershipCheck: %v", err)

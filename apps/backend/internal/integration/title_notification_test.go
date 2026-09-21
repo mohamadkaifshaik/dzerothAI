@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/notification"

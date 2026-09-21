@@ -245,23 +245,30 @@ func TestQualification_Centurion_RepostsExcluded_Strict(t *testing.T) {
 		}
 	}
 
-	// Seed post owned by the OTHER user.
-	seedPostID := uuid.New()
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO posts (id, author_id, post_type, content, is_deleted, created_at, updated_at)
-		 VALUES ($1, $2, 'original', 'seed for repost', FALSE, now(), now())`,
-		seedPostID, seedAuthorID,
-	); err != nil {
-		t.Fatalf("insert seed post: %v", err)
+	// 5 distinct seed posts owned by the OTHER user — one per repost.
+	// The posts_repost_unique_per_author partial unique index enforces
+	// (author_id, quoted_post_id) uniqueness for non-deleted reposts, so each
+	// repost must reference a distinct seed post.
+	seedPostIDs := make([]uuid.UUID, 5)
+	for i := range 5 {
+		seedPostIDs[i] = uuid.New()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO posts (id, author_id, post_type, content, is_deleted, created_at, updated_at)
+			 VALUES ($1, $2, 'original', $3, FALSE, now(), now())`,
+			seedPostIDs[i], seedAuthorID, fmt.Sprintf("seed for repost %d", i),
+		); err != nil {
+			t.Fatalf("insert seed post %d: %v", i, err)
+		}
 	}
 
-	// 5 reposts by the user under test — should NOT count.
+	// 5 reposts by the user under test — should NOT count toward Centurion.
+	// Each repost targets a distinct seed post to satisfy the unique constraint.
 	for i := range 5 {
 		postID := uuid.New()
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO posts (id, author_id, post_type, content, quoted_post_id, is_deleted, created_at, updated_at)
 			 VALUES ($1, $2, 'repost', NULL, $3, FALSE, now(), now())`,
-			postID, userID, seedPostID,
+			postID, userID, seedPostIDs[i],
 		); err != nil {
 			t.Fatalf("insert repost %d: %v", i, err)
 		}
