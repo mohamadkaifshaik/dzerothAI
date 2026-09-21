@@ -57,7 +57,9 @@ func TestWorker_ActiveToGrace(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// Verify the title transitioned to grace_period.
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
@@ -149,7 +151,9 @@ func TestWorker_GraceToActive(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// Should be restored to active since user qualifies for niche_guru_tech.
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
@@ -193,7 +197,9 @@ func TestWorker_GraceToRevoked(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// Should be revoked.
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
@@ -245,7 +251,9 @@ func TestWorker_RevokedReearned(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// Verify a new active row was created (different ID from the revoked row).
 	entries, err := repo.GetUserTitles(ctx, userID)
@@ -295,7 +303,9 @@ func TestWorker_PrimaryTitleClearedOnRevoke(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// primary_title_id must be cleared.
 	var primaryID *uuid.UUID
@@ -359,7 +369,9 @@ func TestWorker_PrimaryTitleNotClearedForDifferent(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// primary_title_id must still point to title A.
 	var primaryID *uuid.UUID
@@ -409,7 +421,9 @@ func TestWorker_PermanentTitleNotRevoked(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// Title must remain active — permanent titles are never revoked.
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
@@ -449,7 +463,9 @@ func TestWorker_GraceBefore48h(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	// Must still be grace_period — window has not expired.
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
@@ -489,7 +505,9 @@ func TestWorker_GraceExactlyAt48h(t *testing.T) {
 	}
 
 	w := newWorker(repo)
-	w.RunOnce(ctx)
+	if err := w.ReconcileUser(ctx, userID); err != nil {
+		t.Fatalf("ReconcileUser: %v", err)
+	}
 
 	entry, err := repo.GetUserTitleForOwnershipCheck(ctx, ut.ID, userID)
 	if err != nil {

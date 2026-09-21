@@ -106,6 +106,14 @@ func (w *TitleQualificationWorker) RunOnce(ctx context.Context) {
 	w.runReconciliation(ctx)
 }
 
+// ReconcileUser runs title qualification and lifecycle reconciliation for a
+// single user synchronously. Exported for integration tests that need to
+// exercise worker logic for a specific user without scanning the entire users
+// table (which would be slow when other tests have inserted many rows).
+func (w *TitleQualificationWorker) ReconcileUser(ctx context.Context, userID uuid.UUID) error {
+	return w.reconcileUser(ctx, userID)
+}
+
 // runReconciliation performs a single full pass over all users using cursor
 // pagination. It logs aggregate results and continues past per-user errors.
 func (w *TitleQualificationWorker) runReconciliation(ctx context.Context) {
