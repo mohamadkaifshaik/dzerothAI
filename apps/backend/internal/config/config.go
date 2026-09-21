@@ -47,7 +47,9 @@ type Config struct {
 
 	// AdminAddr is the TCP listen address for the admin/observability HTTP server.
 	// This server exposes /livez, /readyz, and /metrics — it must NOT be exposed
-	// on the public API port. Default: ":9091".
+	// on the public API port. Default: "127.0.0.1:9091" (loopback only).
+	// Use ":9091" only when a sidecar container (e.g. Prometheus) must reach the
+	// admin port across the Docker bridge network.
 	AdminAddr string
 
 	// PostgresSSLMode is the sslmode query parameter passed to the PostgreSQL DSN.
@@ -176,7 +178,7 @@ func Load() (*Config, error) {
 		Environment:            optional("ENVIRONMENT", "local"),
 		LogLevel:               optional("LOG_LEVEL", "info"),
 		CORSAllowedOrigins:     corsOrigins,
-		AdminAddr:              optional("ADMIN_ADDR", ":9091"),
+		AdminAddr:              optional("ADMIN_ADDR", "127.0.0.1:9091"),
 		PostgresSSLMode:        pgSSLMode,
 		RedisPassword:          redisPassword,
 		RedisTLS:               redisTLS,

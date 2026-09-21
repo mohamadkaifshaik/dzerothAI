@@ -29,6 +29,11 @@ services:
       REDIS_ADDR: "redis:6379"
       ENVIRONMENT: staging
       LOG_LEVEL: debug
+      # ADMIN_ADDR must be :9091 (all container interfaces) in staging so that
+      # the host port binding "127.0.0.1:9091:9091" works. Docker's NAT proxy
+      # connects via the bridge network IP, not the container loopback, so the
+      # new production default (127.0.0.1:9091) would prevent port publishing.
+      ADMIN_ADDR: ":9091"
     ports:
       # Public API — place a TLS-terminating reverse proxy in front.
       - "8080:8080"

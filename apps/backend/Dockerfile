@@ -73,8 +73,10 @@ RUN chown dzeroth:dzeroth /app/api
 USER dzeroth
 
 # Public API server (default API_PORT=8080).
-# Admin/observability server (default ADMIN_ADDR=:9091) — do NOT expose
-# this port through public load balancers; it serves /livez, /readyz, /metrics.
+# Admin/observability server (default ADMIN_ADDR=127.0.0.1:9091) — binds to
+# the container loopback by default; reachable via docker exec only.
+# Set ADMIN_ADDR=:9091 when a sidecar (e.g. Prometheus) must scrape across the bridge.
+# Do NOT expose this port through public load balancers.
 EXPOSE 8080 9091
 
 # API_PORT matches the default in config.go (8080). Setting it as an ENV makes

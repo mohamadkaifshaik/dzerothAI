@@ -44,7 +44,7 @@ Authoritative source: `apps/backend/internal/config/config.go`.
 | `REDIS_TLS` | No | `false` | Enable TLS for Redis connection |
 | `JWT_SECRET` | Yes | — | HMAC-SHA256 signing secret, minimum 32 bytes (secret) |
 | `API_PORT` | No | `8080` | HTTP API listener port |
-| `ADMIN_ADDR` | No | `:9091` | Admin/observability HTTP listener address |
+| `ADMIN_ADDR` | No | `127.0.0.1:9091` | Admin/observability HTTP listener address (loopback default; use `:9091` if a sidecar scrapes across the bridge) |
 | `ENVIRONMENT` | No | `local` | Runtime environment name |
 | `LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `CORS_ALLOWED_ORIGINS` | No | `""` | Comma-separated exact origins for CORS (required in staging/production) |
