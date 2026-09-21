@@ -38,7 +38,7 @@ Internet
 
 | Port | Service | Published in prod | Published in staging | Notes |
 |------|---------|-------------------|---------------------|-------|
-| 8080 | API (public) | Yes (`0.0.0.0:8080`) | Yes (`0.0.0.0:8080`) | Must sit behind a TLS-terminating trusted proxy |
+| 8080 | API (public) | Yes (`127.0.0.1:8080`) | Yes (`0.0.0.0:8080`) | Must sit behind a TLS-terminating trusted proxy |
 | 9091 | Admin (metrics/health) | **No** | `127.0.0.1:9091` only | Never expose publicly |
 | 5432 | PostgreSQL | **No** | **No** | Private network only |
 | 6379 | Redis | **No** | **No** | Private network only |
@@ -572,7 +572,7 @@ docker exec $(docker compose -f docker-compose.prod.yml ps -q api) \
 curl -s http://localhost:8080/health
 
 # 6. Verify through reverse proxy (end-to-end TLS)
-curl -s https://your-domain.com/health
+curl -s https://dzeroth.com/health
 ```
 
 ---
@@ -732,16 +732,18 @@ PostgreSQL data is the primary stateful component. It is stored in the
 **A Docker volume existing is NOT a backup.** Volume data is not protected
 against host failure, accidental deletion (`docker volume rm`), or corruption.
 
-Requirements for production:
-- Regular automated `pg_dump` exports or equivalent, stored off-host.
-- Backup restoration must be tested before a production release is considered
-  ready (see `RELEASE_CHECKLIST.md` — "Backup/restore path is validated").
-- Point-in-time recovery requires continuous WAL archiving, which is not
-  configured in the current compose topology.
+**Backup implementation status:** Operational. Daily automated `pg_dump` backups
+run at 02:00 UTC via a systemd timer, compressed with gzip, integrity-checked,
+and uploaded to S3 (`dzeroth-production-postgres-backups-2026`, ap-south-2).
+Restore was verified on 2026-09-21.
 
-**No backup system is currently implemented in this repository.** Backup
-provisioning is a required operational task that must be completed before
-production release.
+See `docs/BACKUP_RECOVERY.md` for the complete backup configuration, IAM
+requirements, S3 setup, restore procedure, and restore drill record.
+
+Known limitations:
+- No point-in-time recovery (PITR) — recovery granularity is the last backup.
+- Single host — a total host failure loses data written since the last backup.
+- No cross-region S3 replication.
 
 ### Redis
 
@@ -924,7 +926,7 @@ Use this checklist before any production deployment. Status labels:
 | 16 | `/readyz` returns 200 before routing traffic | **Implemented** (endpoint exists and is correct) |
 | 17 | `/health` returns `"status":"ok"` | **Implemented** |
 | 18 | `/metrics` not publicly reachable (admin port only) | **Implemented** |
-| 19 | PostgreSQL backup strategy confirmed and restore tested | **Implemented** (`scripts/backup/pg_backup.sh`, `pg_restore.sh`; see `docs/BACKUP_RECOVERY.md`). Operator must install cron and test restore drill. |
+| 19 | PostgreSQL backup strategy confirmed and restore tested | **Implemented** (`scripts/backup/pg_backup.sh`, `pg_restore.sh`; see `docs/BACKUP_RECOVERY.md`). Backup timer installed and active. Restore drill completed 2026-09-21 (14 tables, schema_migrations v13, dirty=false). |
 | 20 | Rollback compatibility assessed for any schema changes | **Required** (human review) |
 | 21 | Production reverse proxy provisioned with valid TLS certificate | **Reference config** (`nginx/nginx.prod.conf`); operator must provision and configure with real certs. |
 | 22 | Docker Secrets `_FILE` convention supported; opt-in for operators | **Implemented** (config.go supports `JWT_SECRET_FILE`, `POSTGRES_PASSWORD_FILE`, `REDIS_PASSWORD_FILE`; see `secrets/README.md`). Default deployment still uses plain env files. |
@@ -944,8 +946,8 @@ resolved before production readiness.
 | **Managed PostgreSQL (production)** | Not provisioned. Bundled compose postgres is self-hosted without TLS. | `POSTGRES_SSL_MODE=require` will fail against bundled service; must use `disable` or provision managed PostgreSQL. |
 | **Managed Redis (production)** | Not provisioned. Bundled compose redis has no TLS. | `REDIS_TLS=true` not functional until managed Redis is provisioned. |
 | **Secrets manager** | Docker Secrets `_FILE` convention supported by config.go. `secrets/README.md` documents file creation. Plain `env_file` still used by default in Compose files. | Secrets still visible via `docker inspect` Config.Env when using plain env vars. Operators can opt into Docker Secrets file pattern. |
-| **PostgreSQL backups** | `scripts/backup/pg_backup.sh` / `pg_restore.sh` implemented. See `docs/BACKUP_RECOVERY.md`. Off-host copy and cron installation are operator responsibilities. | No backup until operator installs and schedules the scripts. |
-| **Restore testing** | Scripts implemented; restore drill not yet performed. | Unknown whether a specific backup can be restored to a working state until tested. |
+| **PostgreSQL backups** | **Operational.** Daily backup timer active (`dzeroth-backup.timer`). S3 upload verified. See `docs/BACKUP_RECOVERY.md`. | No production data loss protection until the systemd timer is installed on any replacement host. |
+| **Restore testing** | **Completed.** Restore drill performed 2026-09-21: isolated restore to `dzeroth_restore_drill`, 14 tables, schema_migrations v13, dirty=false. Production database not modified. Repeat drill monthly. | — |
 | **External monitoring / alerting** | `monitoring/prometheus.yml` reference scrape config added. See `docs/MONITORING.md`. No alertmanager or Grafana dashboards provided. | No proactive notification on failures until operator configures Prometheus alerting. |
 | **Deployment platform / CD pipeline** | Not implemented. Manual `docker compose` deployment only. | No automated production rollout or rollback trigger. |
 | **Healthcheck port flexibility** | `ARG API_PORT=8080` + `ENV API_PORT` added to Dockerfile; HEALTHCHECK uses `${API_PORT}`. | Overriding `API_PORT` at runtime without rebuilding the image is still not supported. |
@@ -967,14 +969,14 @@ The authoritative variable list and default values are in
 
 | Volume | Purpose | Backup required |
 |--------|---------|-----------------|
-| `pgdata_prod` | PostgreSQL data | **Yes — not yet implemented** |
+| `pgdata_prod` | PostgreSQL data | **Yes — see `docs/BACKUP_RECOVERY.md`** |
 | `redisdata_prod` | Redis AOF/RDB persistence | Recommended |
 | `pgdata_staging` | Staging PostgreSQL | No |
 | `redisdata_staging` | Staging Redis | No |
 
-Production PostgreSQL backups must be provisioned outside the compose files.
-`pg_dump`, a managed database with automated backups, or a volume snapshot
-strategy are all acceptable — none are currently implemented.
+Production PostgreSQL backups run daily via `scripts/backup/pg_backup.sh`
+and the systemd timer (`dzeroth-backup.timer`). See `docs/BACKUP_RECOVERY.md`
+for the full configuration, S3 bucket setup, and restore procedure.
 
 ---
 

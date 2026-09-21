@@ -60,7 +60,7 @@ EC2 host (dzeroth-production, ap-south-2)
   │
   └── S3 bucket: dzeroth-production-postgres-backups-2026 (ap-south-2)
         IAM role: DzerothProductionBackupRole (IMDS — no stored keys)
-        SSE: aws:s3
+        SSE: AES256 (SSE-S3)
         Versioning: enabled
         Lifecycle: see "S3 retention" section below
 ```
@@ -68,6 +68,124 @@ EC2 host (dzeroth-production, ap-south-2)
 Port 5432 is NOT exposed to the EC2 host network and must remain that way.
 `pg_dump` and `pg_restore` run inside the `postgres` container. The host
 does not need `psql` or `pg_dump` installed.
+
+---
+
+## AWS resources setup
+
+These resources must exist before the first backup runs. If you are rebuilding
+after a disaster, see `docs/EC2_PROVISIONING.md` for the full procedure.
+
+### IAM role: DzerothProductionBackupRole
+
+The EC2 instance uses this role to authenticate to AWS via the instance
+metadata service (IMDS). No stored AWS credentials are required on the host.
+
+**Verify the role exists:**
+
+```bash
+aws iam get-role --role-name DzerothProductionBackupRole \
+  --query 'Role.RoleName' --output text
+```
+
+**Create the role (if it does not exist):**
+
+```bash
+# 1. Create the role
+aws iam create-role \
+  --role-name DzerothProductionBackupRole \
+  --description "Allows EC2 to upload PostgreSQL backups to S3" \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "ec2.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+# 2. Attach the least-privilege inline policy
+aws iam put-role-policy \
+  --role-name DzerothProductionBackupRole \
+  --policy-name DzerothS3BackupPolicy \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dzeroth-production-postgres-backups-2026",
+        "arn:aws:s3:::dzeroth-production-postgres-backups-2026/*"
+      ]
+    }]
+  }'
+
+# 3. Create the instance profile and attach the role
+aws iam create-instance-profile \
+  --instance-profile-name DzerothProductionBackupRole
+
+aws iam add-role-to-instance-profile \
+  --instance-profile-name DzerothProductionBackupRole \
+  --role-name DzerothProductionBackupRole
+```
+
+`s3:DeleteObject` is intentionally absent. S3 object expiry is managed
+by a Lifecycle rule — see "S3 retention" section.
+
+**Attach the role to the EC2 instance:**
+
+```bash
+aws ec2 associate-iam-instance-profile \
+  --region ap-south-2 \
+  --instance-id <instance-id> \
+  --iam-instance-profile Name=DzerothProductionBackupRole
+```
+
+**Verify IMDS access from the instance:**
+
+```bash
+# Run on the EC2 host — should return the role name
+curl -s \
+  "http://169.254.169.254/latest/meta-data/iam/security-credentials/" \
+  | grep DzerothProductionBackupRole
+```
+
+### S3 bucket: dzeroth-production-postgres-backups-2026
+
+**Verify the bucket exists:**
+
+```bash
+aws s3api get-bucket-location \
+  --bucket dzeroth-production-postgres-backups-2026
+# Expected: ap-south-2
+```
+
+**Create the bucket (if it does not exist):**
+
+```bash
+# Create in ap-south-2
+aws s3api create-bucket \
+  --bucket dzeroth-production-postgres-backups-2026 \
+  --region ap-south-2 \
+  --create-bucket-configuration LocationConstraint=ap-south-2
+
+# Block all public access
+aws s3api put-public-access-block \
+  --bucket dzeroth-production-postgres-backups-2026 \
+  --public-access-block-configuration \
+    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+
+# Enable versioning (protects against accidental deletion)
+aws s3api put-bucket-versioning \
+  --bucket dzeroth-production-postgres-backups-2026 \
+  --versioning-configuration Status=Enabled
+```
+
+Apply the S3 Lifecycle rule after bucket creation — see "S3 retention" section.
 
 ---
 
@@ -107,7 +225,7 @@ chmod +x /home/ec2-user/dzerothAI/scripts/backup/pg_restore.sh
 8. Integrity check 2: `gzip -t` (compressed file is not corrupt).
 9. Integrity check 3: `gunzip -c | docker compose exec -T postgres pg_restore --list /dev/stdin` (archive is a valid pg_dump custom-format archive).
 10. Atomically renames `.tmp` to the final filename. Sets `chmod 600` on the file.
-11. Uploads to S3: `aws s3 cp <file> s3://<bucket>/postgres/<filename> --sse aws:s3`. AWS credentials come from the EC2 IAM role via IMDS — no stored keys.
+11. Uploads to S3: `aws s3 cp <file> s3://<bucket>/postgres/<filename> --sse AES256`. AWS credentials come from the EC2 IAM role via IMDS — no stored keys.
 12. Verifies the upload: `aws s3api head-object --bucket <bucket> --key postgres/<filename>`. Fails the script if the object is not found.
 13. Applies local retention: `find $BACKUP_DIR -name "*.dump.gz" -mtime +7 -delete`. Only runs after successful S3 upload and verification.
 14. Logs success and exits 0.
@@ -266,6 +384,22 @@ sudo /home/ec2-user/dzerothAI/scripts/backup/pg_backup.sh
 
 ## Restore procedure
 
+> ### Production restore vs isolated restore drill
+>
+> **Production restore** (this section) replaces all data in the live
+> production `dzeroth` database with the backup contents. Use this only
+> during disaster recovery when the production database must be rebuilt.
+>
+> **Isolated restore drill** (see "Staging restore drill" section) restores
+> into a separate database (e.g. `dzeroth_restore_drill`) to verify that
+> a backup is valid and restorable — without touching production data.
+> Run a drill before every production release and at least monthly.
+>
+> The drill completed on **2026-09-21** confirmed: S3 download, gzip integrity
+> check, `pg_restore --exit-on-error` into `dzeroth_restore_drill`,
+> 14 public tables, `schema_migrations` version 13, `dirty=false`.
+> The production database was not modified.
+
 ### Stop the API first
 
 The API must be stopped before restoring to prevent data races:
@@ -335,7 +469,16 @@ curl -s http://localhost:8080/health
 
 ## Staging restore drill
 
-Perform this drill monthly to confirm backups are restorable.
+Perform this drill monthly to confirm backups are restorable without modifying
+the production database. Restore into an isolated database, not into `dzeroth`.
+
+### Completed drills
+
+| Date | Backup file | Target database | Tables | schema_migrations | Result |
+|------|------------|-----------------|--------|-------------------|--------|
+| 2026-09-21 | S3 scheduled backup | `dzeroth_restore_drill` | 14 | v13, dirty=false | PASS |
+
+### Drill procedure
 
 1. Download a recent production backup to the staging host:
    ```bash
