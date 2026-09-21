@@ -176,3 +176,8 @@ type SetPrimaryTitleRequest struct {
 type PrimaryTitleResponse struct {
 	PrimaryTitle *TitleSummaryDTO `json:"primary_title"`
 }
+
+// TitleCatalogResponse is the response for GET /api/v1/titles/catalog.
+type TitleCatalogResponse struct {
+	Items []TitleDefinitionDTO `json:"items"`
+}

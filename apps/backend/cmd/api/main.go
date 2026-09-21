@@ -21,6 +21,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -190,6 +191,15 @@ func run() error {
 	followHandler := follow.NewHandler(followSvc, log)
 	blockHandler := block.NewHandler(blockSvc, log)
 
+	// Phase 8 — Title HTTP API (wired here so titleHandler is available for route registration below).
+	// titleRepo is constructed in the workers section below; we forward-declare it here
+	// so the handler can be registered before the HTTP server starts.
+	titleRepo := title.NewRepository(pool)
+	titleSvc := title.NewService(titleRepo, log)
+	titleSvc.SetFollowChecker(followSvc)
+	titleSvc.SetPrivacyChecker(&titleUserPrivacyAdapter{svc: userSvc})
+	titleHandler := title.NewHandler(titleSvc, log)
+
 	// ── 7. Build HTTP metrics instruments ────────────────────────────────────
 	httpMetrics := platformMetrics.New(prometheus.DefaultRegisterer)
 	// Event counters for auth, rate-limit, and feed termination events.
@@ -271,6 +281,7 @@ func run() error {
 		searchHandler.RegisterRoutes(r, redisClient, cfg.JWTSecret)
 		reportHandler.RegisterRoutes(r, cfg.JWTSecret)
 		studioHandler.RegisterRoutes(r, cfg.JWTSecret)
+		titleHandler.RegisterRoutes(r, cfg.JWTSecret)
 	})
 
 	// ── 10. Build admin router ────────────────────────────────────────────────
@@ -330,7 +341,7 @@ func run() error {
 	// qualification and reconciles lifecycle state (active → grace_period →
 	// revoked, and grace_period → active restores). Non-critical — per-user
 	// errors are logged at Warn and the pass continues.
-	titleRepo := title.NewRepository(pool)
+	// Note: titleRepo is already constructed above (Phase 8 wiring).
 	titleEngine := title.NewEngine(titleRepo, log)
 	titleWorker := title.NewTitleQualificationWorker(
 		titleEngine,
@@ -416,6 +427,21 @@ func (a *postNotificationAdapter) PublishPostEvent(ctx context.Context, event po
 		Event:       notification.NotificationEvent(event.Event),
 		PostID:      postIDCopy,
 	})
+}
+
+// titleUserPrivacyAdapter adapts *user.Service to the title.userPrivacyChecker
+// interface. Defined in cmd/api/main.go — the only layer that may depend on
+// both internal/title and internal/user — to avoid an import cycle.
+type titleUserPrivacyAdapter struct {
+	svc *user.Service
+}
+
+func (a *titleUserPrivacyAdapter) IsPrivateAccount(ctx context.Context, userID uuid.UUID) (bool, error) {
+	u, err := a.svc.GetProfile(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return u.IsPrivate, nil
 }
 
 // buildLogger creates a zap logger tuned to the configured environment and level.
