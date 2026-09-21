@@ -39,7 +39,10 @@ Dzeroth production. Follow this document as Step 1 and Step 2 of
    - Security group: create or select — see Step 2.
 7. **Storage:** 20 GiB, volume type gp3.
 8. **Advanced details → IAM instance profile:** `DzerothProductionBackupRole`
-9. Click **Launch instance**.
+9. **Advanced details → Metadata version:** Select **V2 only (token required)**
+   This enforces IMDSv2 and prevents credential theft via SSRF attacks that use
+   simple GET requests. See Step 3.5 for details.
+10. Click **Launch instance**.
 
 ### Via AWS CLI
 
@@ -65,6 +68,7 @@ aws ec2 run-instances \
   --key-name <key-pair-name> \
   --security-group-ids <sg-id> \
   --iam-instance-profile Name=DzerothProductionBackupRole \
+  --metadata-options HttpTokens=required,HttpEndpoint=enabled \
   --block-device-mappings \
     '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":20,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
   --no-associate-public-ip-address \
@@ -165,6 +169,78 @@ aws ec2 describe-addresses \
   --filters "Name=public-ip,Values=98.130.17.78" \
   --query 'Addresses[0].{IP:PublicIp,Instance:InstanceId,State:AssociationId}'
 ```
+
+---
+
+## Step 3.5 — Enforce IMDSv2
+
+IMDSv2 (Instance Metadata Service v2) requires a session-oriented token for
+all IMDS requests. This prevents credential theft via SSRF attacks — a
+compromised application that makes GET requests to `169.254.169.254` cannot
+retrieve IAM credentials without first completing a PUT-based token exchange.
+
+### Apply to an existing instance
+
+If the instance was launched without `HttpTokens=required`, apply IMDSv2 to
+the running instance:
+
+```bash
+aws ec2 modify-instance-metadata-options \
+  --region ap-south-2 \
+  --instance-id <instance-id> \
+  --http-tokens required \
+  --http-endpoint enabled
+```
+
+This takes effect immediately. No reboot required.
+
+> **Do NOT set `--http-endpoint disabled`** — that disables IMDS entirely
+> and breaks IAM role credential delivery, causing the backup script to fail.
+
+### Verify IMDSv2 is enforced
+
+```bash
+aws ec2 describe-instances \
+  --region ap-south-2 \
+  --instance-ids <instance-id> \
+  --query 'Reservations[0].Instances[0].MetadataOptions' \
+  --output json
+# Expected:
+# {
+#   "State": "applied",
+#   "HttpTokens": "required",
+#   "HttpEndpoint": "enabled",
+#   ...
+# }
+```
+
+Confirm that IMDS responds to an IMDSv2 token-authenticated request (run
+from inside the instance via SSH):
+
+```bash
+# Obtain a session token (valid for 60 seconds)
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+
+# Use the token to retrieve the IAM role name
+curl -s -H "X-aws-ec2-metadata-token: ${TOKEN}" \
+  "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+# Expected: DzerothProductionBackupRole
+```
+
+An IMDSv1-style GET (no token header) must be rejected:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" \
+  "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+# Expected: 401 (rejected — IMDSv2 is enforced)
+```
+
+### New instances
+
+The `run-instances` command in Step 1 already includes
+`--metadata-options HttpTokens=required,HttpEndpoint=enabled`.
+No additional step is required when provisioning a new instance.
 
 ---
 
@@ -379,10 +455,19 @@ sudo docker compose version
 # 5. Repository present
 ls /home/ec2-user/dzerothAI/docker-compose.prod.yml
 
-# 6. IAM role accessible via IMDS
+# 6. IMDSv2 is enforced (run from the EC2 instance)
+#    Step 1: Obtain a session token
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+#    Step 2: Retrieve the IAM role name using the token
+curl -s -H "X-aws-ec2-metadata-token: ${TOKEN}" \
+  "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+# Expected: DzerothProductionBackupRole
+#
+#    Step 3: Confirm IMDSv1 is rejected (no token header)
 curl -s -o /dev/null -w "%{http_code}" \
   "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
-# Expected: 200
+# Expected: 401
 
 # 7. S3 bucket accessible
 aws s3 ls s3://dzeroth-production-postgres-backups-2026/ --region ap-south-2
