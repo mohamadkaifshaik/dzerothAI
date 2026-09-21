@@ -166,7 +166,7 @@ server {
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
-    add_header Strict-Transport-Security "max-age=86400" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
 
     proxy_connect_timeout 5s;
     proxy_send_timeout    35s;
@@ -244,7 +244,7 @@ echo | openssl s_client -connect dzeroth.com:443 -servername dzeroth.com 2>/dev/
 
 # 6. HSTS header present
 curl -sI https://dzeroth.com/health | grep -i strict-transport
-# Expected: strict-transport-security: max-age=86400
+# Expected: strict-transport-security: max-age=31536000
 
 # 7. Admin port is NOT reachable from the public internet
 # (Should time out or refuse — 9091 is not in the security group)
