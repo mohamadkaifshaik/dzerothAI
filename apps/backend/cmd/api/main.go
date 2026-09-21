@@ -344,6 +344,22 @@ func run() error {
 		titleWorker.Run(workerCtx)
 	}()
 
+	// Title notification worker: periodically dispatches pending title unlock
+	// and grace period notifications. Reuses the existing notifSvc publisher.
+	// Publish-first, mark-sent-second failure contract: the notifications table
+	// deduplication index prevents duplicate rows if the process crashes between
+	// publish and mark-sent.
+	titleNotifCfg := title.NotificationWorkerConfig{
+		Interval:  cfg.TitleNotificationInterval,
+		BatchSize: 100,
+	}
+	titleNotifWorker := title.NewTitleNotificationWorker(titleRepo, notifSvc, titleNotifCfg, log)
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		titleNotifWorker.Run(workerCtx)
+	}()
+
 	serverErr := make(chan error, 2)
 	go func() {
 		log.Info("http server listening", zap.String("addr", srv.Addr))

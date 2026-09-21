@@ -76,6 +76,11 @@ type Config struct {
 	// a full reconciliation pass over all users. Accepts any Go duration string
 	// (e.g. "5m", "10m"). Default: 5 minutes.
 	TitleWorkerInterval time.Duration
+
+	// TitleNotificationInterval controls how often the title notification worker
+	// dispatches pending title notifications. Accepts any Go duration string
+	// (e.g. "1m", "5m"). Default: 1 minute.
+	TitleNotificationInterval time.Duration
 }
 
 // Warnings collects non-fatal startup warnings about configuration issues.
@@ -176,25 +181,32 @@ func Load() (*Config, error) {
 		warns = append(warns, warn)
 	}
 
+	// Optional duration: warn if set but invalid. Default: 1 minute.
+	titleNotificationInterval, warn := optionalDurationWarn("TITLE_NOTIFICATION_INTERVAL", 1*time.Minute)
+	if warn != "" {
+		warns = append(warns, warn)
+	}
+
 	// Print startup warnings to stderr. These are non-fatal; the default is used.
 	for _, w := range warns {
 		_, _ = fmt.Fprintf(os.Stderr, "WARN config: %s\n", w)
 	}
 
 	return &Config{
-		PostgresDSN:            dsn,
-		RedisAddr:              redisAddr,
-		JWTSecret:              jwtSecret,
-		APIPort:                optional("API_PORT", "8080"),
-		Environment:            optional("ENVIRONMENT", "local"),
-		LogLevel:               optional("LOG_LEVEL", "info"),
-		CORSAllowedOrigins:     corsOrigins,
-		AdminAddr:              optional("ADMIN_ADDR", "127.0.0.1:9091"),
-		PostgresSSLMode:        pgSSLMode,
-		RedisPassword:          redisPassword,
-		RedisTLS:               redisTLS,
-		SessionCleanupInterval: sessionInterval,
-		TitleWorkerInterval:    titleWorkerInterval,
+		PostgresDSN:               dsn,
+		RedisAddr:                 redisAddr,
+		JWTSecret:                 jwtSecret,
+		APIPort:                   optional("API_PORT", "8080"),
+		Environment:               optional("ENVIRONMENT", "local"),
+		LogLevel:                  optional("LOG_LEVEL", "info"),
+		CORSAllowedOrigins:        corsOrigins,
+		AdminAddr:                 optional("ADMIN_ADDR", "127.0.0.1:9091"),
+		PostgresSSLMode:           pgSSLMode,
+		RedisPassword:             redisPassword,
+		RedisTLS:                  redisTLS,
+		SessionCleanupInterval:    sessionInterval,
+		TitleWorkerInterval:       titleWorkerInterval,
+		TitleNotificationInterval: titleNotificationInterval,
 	}, nil
 }
 

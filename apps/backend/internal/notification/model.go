@@ -16,10 +16,12 @@ import (
 type NotificationEvent string
 
 const (
-	EventFollow   NotificationEvent = "follow"
-	EventMention  NotificationEvent = "mention"
-	EventReply    NotificationEvent = "reply"
-	EventReaction NotificationEvent = "reaction"
+	EventFollow           NotificationEvent = "follow"
+	EventMention          NotificationEvent = "mention"
+	EventReply            NotificationEvent = "reply"
+	EventReaction         NotificationEvent = "reaction"
+	EventTitleUnlocked    NotificationEvent = "title_unlocked"
+	EventTitleGracePeriod NotificationEvent = "title_grace_period"
 )
 
 // ActorSummary holds the minimal actor fields joined from the users table.

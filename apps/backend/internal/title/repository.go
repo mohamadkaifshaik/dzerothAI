@@ -447,9 +447,95 @@ func (r *Repository) RevokeUserTitleTx(ctx context.Context, userTitleID, userID 
 	return nil
 }
 
+// GetPendingUnlockNotifications returns user_titles rows where
+// unlock_notification_sent=FALSE and status IN ('active','grace_period'),
+// joined with their title definition for display fields.
+// Returns at most limit rows ordered by unlocked_at ASC (oldest first).
+// Used by TitleNotificationWorker to dispatch unlock notifications.
+func (r *Repository) GetPendingUnlockNotifications(ctx context.Context, limit int) ([]PendingTitleNotification, error) {
+	const q = `
+		SELECT ut.id, ut.user_id, td.slug, td.display_name
+		FROM user_titles ut
+		JOIN title_definitions td ON td.id = ut.title_definition_id
+		WHERE ut.unlock_notification_sent = FALSE
+		  AND ut.status IN ('active', 'grace_period')
+		ORDER BY ut.unlocked_at ASC
+		LIMIT $1`
+
+	rows, err := r.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("title: get pending unlock notifications query: %w", err)
+	}
+	defer rows.Close()
+
+	return scanPendingNotifications(rows)
+}
+
+// GetPendingGraceNotifications returns user_titles rows where
+// grace_notification_sent=FALSE and status='grace_period',
+// joined with their title definition for display fields.
+// Returns at most limit rows ordered by unlocked_at ASC (oldest first).
+// Used by TitleNotificationWorker to dispatch grace period notifications.
+func (r *Repository) GetPendingGraceNotifications(ctx context.Context, limit int) ([]PendingTitleNotification, error) {
+	const q = `
+		SELECT ut.id, ut.user_id, td.slug, td.display_name
+		FROM user_titles ut
+		JOIN title_definitions td ON td.id = ut.title_definition_id
+		WHERE ut.grace_notification_sent = FALSE
+		  AND ut.status = 'grace_period'
+		ORDER BY ut.unlocked_at ASC
+		LIMIT $1`
+
+	rows, err := r.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("title: get pending grace notifications query: %w", err)
+	}
+	defer rows.Close()
+
+	return scanPendingNotifications(rows)
+}
+
+// MarkUnlockNotificationSent sets unlock_notification_sent=TRUE for the given
+// user_titles row. Idempotent: no error if the flag is already TRUE.
+func (r *Repository) MarkUnlockNotificationSent(ctx context.Context, userTitleID uuid.UUID) error {
+	const q = `UPDATE user_titles SET unlock_notification_sent = TRUE WHERE id = $1`
+	_, err := r.pool.Exec(ctx, q, userTitleID)
+	if err != nil {
+		return fmt.Errorf("title: mark unlock notification sent: %w", err)
+	}
+	return nil
+}
+
+// MarkGraceNotificationSent sets grace_notification_sent=TRUE for the given
+// user_titles row. Idempotent: no error if the flag is already TRUE.
+func (r *Repository) MarkGraceNotificationSent(ctx context.Context, userTitleID uuid.UUID) error {
+	const q = `UPDATE user_titles SET grace_notification_sent = TRUE WHERE id = $1`
+	_, err := r.pool.Exec(ctx, q, userTitleID)
+	if err != nil {
+		return fmt.Errorf("title: mark grace notification sent: %w", err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // unexported helpers
 // ---------------------------------------------------------------------------
+
+// scanPendingNotifications scans rows from a GetPending*Notifications query.
+func scanPendingNotifications(rows pgx.Rows) ([]PendingTitleNotification, error) {
+	var result []PendingTitleNotification
+	for rows.Next() {
+		var p PendingTitleNotification
+		if err := rows.Scan(&p.UserTitleID, &p.UserID, &p.Slug, &p.DisplayName); err != nil {
+			return nil, fmt.Errorf("title: scan pending notification: %w", err)
+		}
+		result = append(result, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("title: pending notification rows: %w", err)
+	}
+	return result, nil
+}
 
 // getUserTitleByID fetches a single user_titles row by primary key.
 func (r *Repository) getUserTitleByID(ctx context.Context, id uuid.UUID) (*UserTitle, error) {

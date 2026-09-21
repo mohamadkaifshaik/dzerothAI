@@ -155,6 +155,16 @@ type UserTitlesResponse struct {
 	PrimaryID *string        `json:"primary_id,omitempty"`
 }
 
+// PendingTitleNotification carries the minimum fields needed to publish a
+// title notification event. Returned by GetPendingUnlockNotifications and
+// GetPendingGraceNotifications.
+type PendingTitleNotification struct {
+	UserTitleID uuid.UUID
+	UserID      uuid.UUID
+	Slug        string
+	DisplayName string
+}
+
 // SetPrimaryTitleRequest is the request body for PUT /api/v1/titles/me/primary.
 type SetPrimaryTitleRequest struct {
 	UserTitleID string `json:"user_title_id"`
