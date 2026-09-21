@@ -264,6 +264,90 @@ func (r *Repository) GetUserTitleForOwnershipCheck(ctx context.Context, userTitl
 	return &ut, nil
 }
 
+// GetUserCreatedAt returns the created_at timestamp for the given user.
+// Returns ErrNotFound if no users row matches the given id.
+func (r *Repository) GetUserCreatedAt(ctx context.Context, userID uuid.UUID) (time.Time, error) {
+	const q = `SELECT created_at FROM users WHERE id = $1`
+	var t time.Time
+	err := r.pool.QueryRow(ctx, q, userID).Scan(&t)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, ErrNotFound
+		}
+		return time.Time{}, fmt.Errorf("title: get user created_at: %w", err)
+	}
+	return t, nil
+}
+
+// CountCenturionPosts returns the lifetime count of qualifying posts
+// (post_type IN ('original','reply','quote') AND is_deleted=FALSE) authored
+// by userID. Reposts are excluded per the Centurion qualification rule.
+func (r *Repository) CountCenturionPosts(ctx context.Context, userID uuid.UUID) (int64, error) {
+	const q = `
+		SELECT COUNT(*)
+		FROM posts
+		WHERE author_id = $1
+		  AND is_deleted = FALSE
+		  AND post_type IN ('original', 'reply', 'quote')`
+	var n int64
+	if err := r.pool.QueryRow(ctx, q, userID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("title: count centurion posts: %w", err)
+	}
+	return n, nil
+}
+
+// GetTrendsetterLikes returns the count of 'like' reactions received on the
+// user's non-deleted posts within the rolling 30-day window.
+func (r *Repository) GetTrendsetterLikes(ctx context.Context, userID uuid.UUID) (int64, error) {
+	const q = `
+		SELECT COUNT(*)
+		FROM reactions r
+		JOIN posts p ON p.id = r.post_id
+		WHERE p.author_id = $1
+		  AND p.is_deleted = FALSE
+		  AND r.reaction_type = 'like'
+		  AND r.created_at >= now() - interval '30 days'`
+	var n int64
+	if err := r.pool.QueryRow(ctx, q, userID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("title: get trendsetter likes: %w", err)
+	}
+	return n, nil
+}
+
+// GetNicheMetrics returns the count of distinct qualifying posts and their
+// associated like count for the given user and tag set, over the rolling
+// 30-day window.
+//
+// The CTE ensures a post tagged with multiple qualifying tags (e.g. both
+// #tech and #gadgets) is counted exactly once (DISTINCT post id) rather than
+// once per matching tag, avoiding a multiplication bug.
+func (r *Repository) GetNicheMetrics(ctx context.Context, userID uuid.UUID, tags []string) (posts int64, likes int64, err error) {
+	const q = `
+		WITH qualifying_posts AS (
+		    SELECT DISTINCT p.id
+		    FROM posts p
+		    JOIN post_hashtags ph ON ph.post_id = p.id
+		    WHERE p.author_id = $1
+		      AND p.is_deleted = FALSE
+		      AND p.post_type IN ('original', 'reply', 'quote')
+		      AND ph.tag = ANY($2::text[])
+		      AND p.created_at >= now() - interval '30 days'
+		)
+		SELECT
+		    (SELECT COUNT(*) FROM qualifying_posts) AS niche_posts_30d,
+		    (
+		        SELECT COUNT(*)
+		        FROM reactions r
+		        WHERE r.post_id IN (SELECT id FROM qualifying_posts)
+		          AND r.reaction_type = 'like'
+		          AND r.created_at >= now() - interval '30 days'
+		    ) AS niche_likes_30d`
+	if err = r.pool.QueryRow(ctx, q, userID, tags).Scan(&posts, &likes); err != nil {
+		return 0, 0, fmt.Errorf("title: get niche metrics: %w", err)
+	}
+	return posts, likes, nil
+}
+
 // ---------------------------------------------------------------------------
 // unexported helpers
 // ---------------------------------------------------------------------------
