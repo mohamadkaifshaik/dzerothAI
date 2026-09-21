@@ -439,7 +439,14 @@ then starts the HTTP servers.
    docker compose -f docker-compose.prod.yml stop api
 
 5. Update IMAGE_TAG and start the new container:
-   IMAGE_TAG=<new-tag> docker compose -f docker-compose.prod.yml up -d api
+   IMAGE_TAG=<new-tag> docker compose -f docker-compose.prod.yml up -d --no-deps api
+
+   # --no-deps is required. Without it, Compose reconciles all dependency
+   # services (postgres, redis) and may recreate them if their stored
+   # config-hash is stale relative to the current compose file. PostgreSQL
+   # and Redis are stateful; unnecessary recreation is never safe during a
+   # migration sequence. --no-deps restricts the operation to the api
+   # service only.
 
 6. Wait for the container to start and migrations to complete:
    docker compose -f docker-compose.prod.yml logs api --follow
@@ -538,6 +545,14 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health
 
 ## Production deployment procedure
 
+There are two distinct cases. Use the correct procedure for each.
+
+### Case A — First-time stack initialisation (PostgreSQL and Redis not yet running)
+
+Use this only when bringing up a new environment from scratch. Running `up -d`
+without `--no-deps` is intentional here because PostgreSQL and Redis do not
+exist yet and must be started.
+
 ```bash
 # Prerequisites:
 #   - All staging checks passed
@@ -558,7 +573,7 @@ docker build -f apps/backend/Dockerfile apps/backend/ \
   --build-arg BUILD_TIME=${BUILD_TIME} \
   -t dzeroth-api:${IMAGE_TAG}
 
-# 2. Start the production stack
+# 2. Start the full stack (first time only — all services including postgres and redis)
 IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d
 
 # 3. Tail logs until "http server listening"
@@ -574,6 +589,59 @@ curl -s http://localhost:8080/health
 # 6. Verify through reverse proxy (end-to-end TLS)
 curl -s https://dzeroth.com/health
 ```
+
+### Case B — API image rollout (PostgreSQL and Redis already running)
+
+This is the normal production deployment path. PostgreSQL and Redis are
+long-running stateful services; they must not be reconciled or recreated as
+part of an API image swap.
+
+**Always use `--no-deps` for API-only image rollouts.**
+
+Without `--no-deps`, Compose reconciles all dependency services and will
+recreate PostgreSQL and Redis if their stored Compose config-hash is stale
+relative to the current compose file. This can happen whenever
+`docker-compose.prod.yml` has changed since the dependencies were last
+started — even if the change did not affect the postgres or redis service
+definitions. Named volumes survive recreation, but unexpected recreation of
+stateful services is never acceptable during a routine API rollout.
+
+`--no-deps` restricts the `up -d` operation to the `api` service only.
+PostgreSQL and Redis are not inspected, compared, or touched.
+
+```bash
+export IMAGE_TAG=<same-tag-as-staged>
+
+# 1. Build the image
+docker build -f apps/backend/Dockerfile apps/backend/ \
+  --build-arg VERSION=${IMAGE_TAG} \
+  --build-arg COMMIT=${IMAGE_TAG} \
+  --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t dzeroth-api:${IMAGE_TAG}
+
+# 2. Roll the API service only — --no-deps prevents dependency recreation
+IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d --no-deps api
+
+# 3. Tail logs until "http server listening"
+docker compose -f docker-compose.prod.yml logs api --follow
+
+# 4. Verify readiness
+docker exec $(docker compose -f docker-compose.prod.yml ps -q api) \
+  wget -qO- http://localhost:9091/readyz
+
+# 5. Verify health
+curl -s http://localhost:8080/health
+
+# 6. Verify through reverse proxy (end-to-end TLS)
+curl -s https://dzeroth.com/health
+```
+
+> **PostgreSQL and Redis changes require a separate deliberate procedure.**
+> Do NOT include a compose service definition change for postgres or redis in an
+> API-only image rollout. Any intended change to PostgreSQL or Redis (image
+> upgrade, configuration change, volume migration) must be planned, scheduled,
+> and executed as a separate maintenance operation with a backup taken
+> immediately beforehand. See the Backups and Emergency recovery sections.
 
 ---
 
@@ -676,11 +744,12 @@ port in a running container without rebuilding the image is not supported.
 
 ### Application image rollback
 
-An application image rollback is straightforward: stop the current container,
-set `IMAGE_TAG` to the previous version, and restart.
+An application image rollback is straightforward: set `IMAGE_TAG` to the
+previous version and restart the API service. Use `--no-deps` for the same
+reason as a forward rollout — PostgreSQL and Redis must not be touched.
 
 ```bash
-IMAGE_TAG=<previous-tag> docker compose -f docker-compose.prod.yml up -d api
+IMAGE_TAG=<previous-tag> docker compose -f docker-compose.prod.yml up -d --no-deps api
 docker exec $(docker compose -f docker-compose.prod.yml ps -q api) \
   wget -qO- http://localhost:9091/readyz
 ```
