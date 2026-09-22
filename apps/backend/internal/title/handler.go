@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,8 +17,9 @@ import (
 
 // Handler exposes the title HTTP endpoints.
 type Handler struct {
-	svc *Service
-	log *zap.Logger
+	svc       *Service
+	log       *zap.Logger
+	jwtSecret []byte
 }
 
 // NewHandler constructs a title Handler.
@@ -34,9 +36,14 @@ func NewHandler(svc *Service, log *zap.Logger) *Handler {
 //	GET    /titles/me/primary           — JWT required
 //	PUT    /titles/me/primary           — JWT required
 //	DELETE /titles/me/primary           — JWT required
-//	GET    /titles/{userID}/primary     — optional auth (runs without middleware;
-//	                                      handler checks context for caller identity)
+//	GET    /titles/{userID}/primary     — optional auth: the handler parses the
+//	                                      Bearer token directly when present so
+//	                                      the owner always sees their own title;
+//	                                      unauthenticated requests are not rejected.
 func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
+	// Store the secret so getUserPrimary can perform optional token parsing.
+	h.jwtSecret = jwtSecret
+
 	// Public — no auth required.
 	r.Get("/titles/catalog", h.getCatalog)
 
@@ -46,10 +53,9 @@ func (h *Handler) RegisterRoutes(r chi.Router, jwtSecret []byte) {
 	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Put("/titles/me/primary", h.setMyPrimary)
 	r.With(auth.JWTMiddleware(jwtSecret, h.log)).Delete("/titles/me/primary", h.clearMyPrimary)
 
-	// Optional auth — no middleware; handler reads caller from context if present.
-	// The route is registered without JWTMiddleware so unauthenticated requests
-	// are not rejected. The handler calls auth.UserIDFromContext and passes a nil
-	// callerID when the token is absent.
+	// Optional auth — no middleware; the handler parses the Bearer token directly
+	// when present without blocking absent auth. This allows the owner to be
+	// identified and always see their own primary title even on private accounts.
 	r.Get("/titles/{userID}/primary", h.getUserPrimary)
 }
 
@@ -145,21 +151,20 @@ func (h *Handler) clearMyPrimary(w http.ResponseWriter, r *http.Request) {
 }
 
 // getUserPrimary handles GET /api/v1/titles/{userID}/primary.
-// Auth is optional: an authenticated caller gets privacy-aware access;
-// an unauthenticated caller receives a nil title for private accounts.
+// Auth is optional: when a valid Bearer token is present the caller UUID is
+// extracted directly (no middleware ran on this route) so the owner always sees
+// their own primary title. Unauthenticated requests receive a nil title for
+// private accounts.
 func (h *Handler) getUserPrimary(w http.ResponseWriter, r *http.Request) {
 	targetID, ok := parseUUIDParam(w, r, "userID")
 	if !ok {
 		return
 	}
 
-	// Caller may or may not be authenticated. Pass callerID as a pointer so the
-	// service can distinguish nil (unauthenticated) from a real caller UUID.
-	var callerPtr *uuid.UUID
-	if callerID, ok := auth.UserIDFromContext(r.Context()); ok {
-		id := callerID
-		callerPtr = &id
-	}
+	// Parse the Bearer token directly — no JWTMiddleware runs on this route.
+	// extractCallerFromBearer returns nil when the token is absent or invalid,
+	// which the service treats as an unauthenticated request.
+	callerPtr := h.extractCallerFromBearer(r)
 
 	resp, err := h.svc.GetUserPrimaryTitle(r.Context(), callerPtr, targetID)
 	if err != nil {
@@ -167,6 +172,32 @@ func (h *Handler) getUserPrimary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// extractCallerFromBearer attempts to parse a Bearer JWT from the Authorization
+// header without blocking the request when auth is absent or invalid.
+// Returns nil when the Authorization header is missing, not a Bearer token,
+// the token is invalid or expired, or the subject is not a valid UUID.
+// This mirrors the pattern used by search.extractOptionalCallerID.
+func (h *Handler) extractCallerFromBearer(r *http.Request) *uuid.UUID {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return nil
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return nil
+	}
+	tokenStr := strings.TrimPrefix(authHeader, prefix)
+	claims, err := auth.ValidateAccessToken(tokenStr, h.jwtSecret)
+	if err != nil {
+		return nil
+	}
+	id, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return nil
+	}
+	return &id
 }
 
 // handleServiceError maps *apierror.APIError and other service errors to HTTP responses.
