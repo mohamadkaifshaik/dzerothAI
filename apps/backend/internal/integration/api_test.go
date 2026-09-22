@@ -31,6 +31,10 @@ func TestAPI_AuthFlow_RegisterLoginGetMe(t *testing.T) {
 	redisClient := connectTestRedis(t)
 	srv := buildTestAPIServer(t, pool, redisClient, nil)
 
+	// Reset the shared registration rate-limit bucket before registering.
+	// See clearRegisterRateLimit in helpers_test.go for the full explanation.
+	clearRegisterRateLimit(t)
+
 	// ── 1. Register ──────────────────────────────────────────────────────────
 	// Use UUID-based suffix to guarantee uniqueness across all tests sharing
 	// the same database, regardless of test name prefixes.
@@ -517,6 +521,10 @@ func TestAPI_ErrorFormat_InvalidJSON(t *testing.T) {
 	redisClient := connectTestRedis(t)
 	srv := buildTestAPIServer(t, pool, redisClient, nil)
 
+	// Reset the shared registration rate-limit bucket. The rate limiter runs
+	// before JSON parsing, so even an invalid-JSON request consumes a slot.
+	clearRegisterRateLimit(t)
+
 	resp := doJSON(t, http.MethodPost, srv.url("/api/v1/auth/register"),
 		strings.NewReader("this is not json"), nil)
 	defer resp.Body.Close()
@@ -564,6 +572,10 @@ func TestAPI_PostgreSQL_GetMe_ReturnsPersistedData(t *testing.T) {
 	pool := connectTestDB(t)
 	redisClient := connectTestRedis(t)
 	srv := buildTestAPIServer(t, pool, redisClient, nil)
+
+	// Reset the shared registration rate-limit bucket before registering.
+	// See clearRegisterRateLimit in helpers_test.go for the full explanation.
+	clearRegisterRateLimit(t)
 
 	pgID := uuid.New().String()[:8]
 	handle := "u" + pgID

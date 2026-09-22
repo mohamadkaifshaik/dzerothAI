@@ -126,6 +126,10 @@ func buildTitleAPIServer(t *testing.T) *titleTestServer {
 func registerTitleTestUser(t *testing.T, srv *titleTestServer) (userID uuid.UUID, accessToken string) {
 	t.Helper()
 
+	// Reset the shared registration rate-limit bucket before each registration.
+	// See clearRegisterRateLimit in helpers_test.go for the full explanation.
+	clearRegisterRateLimit(t)
+
 	id := uuid.New()
 	suffix := id.String()[:8]
 	handle := "ttlapi_" + suffix

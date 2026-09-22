@@ -125,3 +125,30 @@ func connectTestRedis(t *testing.T) *rdb.Client {
 	t.Cleanup(func() { _ = platformRedis.Close(client) })
 	return client
 }
+
+// clearRegisterRateLimit deletes the registration rate-limit key for the
+// loopback address (127.0.0.1) so that the next registration request is not
+// rejected by the production rate limiter.
+//
+// All integration tests use httptest.Server, which receives connections from
+// 127.0.0.1. The production register rate limit is 5 requests per hour keyed
+// by IP (rl:auth:register:127.0.0.1). Without this reset, successive test
+// functions in the same test run accumulate against that one shared bucket and
+// exceed the limit after the fifth registration call.
+//
+// This helper must only be called from test code. It has no effect on
+// production rate-limit configuration or behavior.
+func clearRegisterRateLimit(t *testing.T) {
+	t.Helper()
+
+	client, err := platformRedis.Connect(context.Background(), testRedisAddr(), testRedisPassword(), false)
+	if err != nil {
+		t.Fatalf("clearRegisterRateLimit: connect redis: %v", err)
+	}
+	defer func() { _ = platformRedis.Close(client) }()
+
+	const key = "rl:auth:register:127.0.0.1"
+	if err := client.Del(context.Background(), key).Err(); err != nil {
+		t.Fatalf("clearRegisterRateLimit: DEL %s: %v", key, err)
+	}
+}

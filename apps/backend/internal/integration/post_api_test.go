@@ -100,6 +100,10 @@ func buildPostAPIServer(t *testing.T, redisClient *rdb.Client) *postTestServer {
 func registerAndGetToken(t *testing.T, srv *postTestServer) string {
 	t.Helper()
 
+	// Reset the shared registration rate-limit bucket before each registration.
+	// See clearRegisterRateLimit in helpers_test.go for the full explanation.
+	clearRegisterRateLimit(t)
+
 	id := uuid.New().String()[:8]
 	handle := "p" + id
 	email := "post_" + id + "@example.com"

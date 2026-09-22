@@ -112,6 +112,10 @@ func buildFeedAPIServer(t *testing.T, pool *pgxpool.Pool, redisClient *rdb.Clien
 func registerUserOnFeedServer(t *testing.T, srv *feedTestServer) string {
 	t.Helper()
 
+	// Reset the shared registration rate-limit bucket before each registration.
+	// See clearRegisterRateLimit in helpers_test.go for the full explanation.
+	clearRegisterRateLimit(t)
+
 	id := uuid.New().String()[:8]
 	handle := "f" + id
 	email := "feed_" + id + "@example.com"

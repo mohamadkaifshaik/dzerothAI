@@ -363,6 +363,14 @@ func doJSON(t *testing.T, method, url string, body io.Reader, headers map[string
 func registerTestUser(t *testing.T, srv *testAPIServer) *apiTokenPair {
 	t.Helper()
 
+	// Reset the registration rate-limit bucket before issuing the request.
+	// All httptest.Server connections arrive from 127.0.0.1, so every test
+	// shares one bucket. Without this reset, the fifth registration across any
+	// test in the run exceeds the production limit (5/hour) and returns 429.
+	// The production RateLimitMiddleware is not changed; only the test-local
+	// Redis key is deleted before each registration.
+	clearRegisterRateLimit(t)
+
 	id := uuid.New().String()[:8]
 	// Ensure handle is 3–50 chars, starts/ends with alphanumeric.
 	handle := "u" + id
