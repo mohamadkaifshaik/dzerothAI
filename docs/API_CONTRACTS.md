@@ -415,6 +415,137 @@ Authorization: Bearer <jwt_access_token>
 - Returns `400 VALIDATION_ERROR` for malformed tag format.
 - Soft-deleted posts excluded.
 
+### Phase 9 — Title System HTTP API
+
+| Area | Method | Endpoint | Status | Notes |
+|---|---|---|---|---|
+| Titles | `GET` | `/api/v1/titles/catalog` | IMPLEMENTED | No auth required. Returns active title definitions. `top_1pct_creator` excluded (`is_active=false`). |
+| Titles | `GET` | `/api/v1/titles/me` | IMPLEMENTED | JWT required. Returns caller's active+grace_period titles and primary_title_id. Revoked titles excluded. |
+| Titles | `GET` | `/api/v1/titles/me/primary` | IMPLEMENTED | JWT required. Returns caller's current primary title or `null`. |
+| Titles | `PUT` | `/api/v1/titles/me/primary` | IMPLEMENTED | JWT required. Sets caller's primary title. Returns 403 if title not owned or not active/grace_period. |
+| Titles | `DELETE` | `/api/v1/titles/me/primary` | IMPLEMENTED | JWT required. Clears caller's primary title. Idempotent — 204 even if no primary is set. |
+| Titles | `GET` | `/api/v1/titles/{userID}/primary` | IMPLEMENTED | Auth optional. Privacy-aware: private accounts return `null` for unauthenticated callers and non-followers. Returns 400 for invalid UUID. |
+
+#### `GET /api/v1/titles/catalog` — Title catalog
+
+**Auth:** none required.
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [
+    {
+      "id": "<uuid-v7>",
+      "slug": "founding_member",
+      "display_name": "Founding Member",
+      "description": "Optional description text.",
+      "category": "milestone | niche | performance",
+      "is_revocable": false
+    }
+  ]
+}
+```
+
+- Returns only definitions where `is_active = true`. `top_1pct_creator` is excluded.
+- `description` is omitted when empty (`omitempty`).
+- No social-validation metrics in this or any title DTO.
+
+#### `GET /api/v1/titles/me` — My titles
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [
+    {
+      "id": "<user-title-uuid>",
+      "slug": "founding_member",
+      "display_name": "Founding Member",
+      "category": "milestone",
+      "is_revocable": false,
+      "status": "active | grace_period",
+      "unlocked_at": "2026-09-18T12:00:00Z"
+    }
+  ],
+  "primary_id": "<user-title-uuid>"
+}
+```
+
+- Revoked titles are excluded.
+- `primary_id` is absent from the JSON object (not `null`) when no primary is set (`omitempty`).
+
+#### `GET /api/v1/titles/me/primary` — My primary title
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Response:** `200 OK`
+
+```json
+{
+  "primary_title": {
+    "slug": "founding_member",
+    "display_name": "Founding Member"
+  }
+}
+```
+
+- `primary_title` is `null` when no primary title is set.
+
+#### `PUT /api/v1/titles/me/primary` — Set primary title
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Request body:**
+
+```json
+{
+  "user_title_id": "<user-title-uuid>"
+}
+```
+
+- `user_title_id` must be a valid UUID.
+- The referenced `user_titles` row must be owned by the caller and have `status IN ('active', 'grace_period')`.
+
+**Response:** `200 OK` — same shape as `GET /titles/me/primary`, populated with the new primary.
+
+**Error responses:**
+
+- `400 VALIDATION_ERROR` — `user_title_id` is missing or not a valid UUID.
+- `403 FORBIDDEN` — title does not belong to the caller, or has status `revoked`.
+
+#### `DELETE /api/v1/titles/me/primary` — Clear primary title
+
+**Auth:** `Authorization: Bearer <token>` required.
+
+**Response:** `204 No Content`.
+
+- Idempotent: returns `204` even if no primary title is currently set.
+
+#### `GET /api/v1/titles/{userID}/primary` — Get a user's primary title
+
+**Auth:** optional (Bearer token). Privacy rules apply based on caller identity.
+
+**Path param:** `userID` — target user UUID.
+
+**Response:** `200 OK` — same shape as `GET /titles/me/primary`.
+
+**Privacy rules (enforced server-side):**
+
+- Owner (`callerID == targetID`): always returns the title.
+- Public account: returns the title for any caller (authenticated or not).
+- Private account + unauthenticated caller: returns `{"primary_title": null}` — NOT 403/404.
+- Private account + authenticated non-follower: returns `{"primary_title": null}`.
+- Private account + authenticated follower: returns the title.
+
+**Error responses:**
+
+- `400 VALIDATION_ERROR` — `userID` is not a valid UUID.
+
+---
+
 ### Phase 5+ / deferred (not yet designed — do not implement)
 
 | Area | Endpoint | Status | Notes |

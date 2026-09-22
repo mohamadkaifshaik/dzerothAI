@@ -50,6 +50,12 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-030 | Discovery | Search (posts + users) | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
 | F-031 | Settings | Account settings and privacy | IMPLEMENTED | Phase 5 — `GET/PUT /api/v1/me/settings` (Phase 1 backend), Flutter `features/settings/`; real SettingsScreen replaces placeholder |
 | F-032 | Safety | Self-suspension | IMPLEMENTED | Phase 5 — `DELETE /api/v1/me/account` (`internal/user/`), `auth.RevokeAllSessions`, Flutter SettingsScreen confirmation dialog; `is_suspended=TRUE` soft-suspend |
+| F-034 | Titles | Title schema and seed data | IMPLEMENTED | Phase 7–9 — migrations 0014–0018; `title_definitions` seeded with 5 active definitions + `top_1pct_creator` (inactive); `user_titles` lifecycle table; `users.primary_title_id` FK |
+| F-035 | Titles | Title qualification engine | IMPLEMENTED | Phase 7–9 — `internal/title/engine.go`; 5 active title qualifiers (FoundingMember, Centurion, Trendsetter, NicheGuru×2); `TitleQualificationWorker` with `RunOnce`/`ReconcileUser` |
+| F-036 | Titles | Title lifecycle reconciliation worker | IMPLEMENTED | Phase 7–9 — `internal/title/worker.go`; active→grace_period→revoked transitions; idempotent; grace period 7-day window |
+| F-037 | Titles | Title notification delivery worker | IMPLEMENTED | Phase 7–9 — `internal/title/notification_worker.go`; unlock and grace_period notifications; `GetPendingUnlockNotifications`/`GetPendingGraceNotifications` |
+| F-038 | Titles | PostAuthor primary-title hydration | IMPLEMENTED | Phase 8 — `internal/post/` PostDTO `author.primary_title` field populated via `title.Repository.GetPrimaryTitle`; zero social-validation metrics |
+| F-039 | Titles | Title HTTP API | IMPLEMENTED | Phase 9 — `internal/title/handler.go`; `GET /titles/catalog`, `GET/GET/PUT/DELETE /titles/me*`, `GET /titles/{userID}/primary`; privacy-aware; integration tests in `internal/integration/title_api_test.go` |
 
 ## Update protocol
 

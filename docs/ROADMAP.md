@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 complete (ranking deferred) — Phase 7 next`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 complete (ranking deferred) — Phase 7–9 complete (title system backend) — Phase 10 next`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
