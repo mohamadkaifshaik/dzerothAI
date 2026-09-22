@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -79,6 +80,13 @@ func (s *testableService) createPost(ctx context.Context, authorID uuid.UUID, re
 		if countDistinctWords(req.Content) < minQuoteWords {
 			return PostDTO{}, apierror.NewAPIError(apierror.CodeValidation,
 				fmt.Sprintf("quote post content must contain at least %d distinct words", minQuoteWords))
+		}
+	}
+
+	// Share/quote delay enforcement — mirrors Service.CreatePost.
+	if req.PostType == PostTypeRepost || req.PostType == PostTypeQuote {
+		if err := validateShareDelay(req.ShareInitiatedAt); err != nil {
+			return PostDTO{}, err
 		}
 	}
 
@@ -790,9 +798,12 @@ func TestCreatePost_QuoteRequiresFiveDistinctWords(t *testing.T) {
 // TestCreatePost_QuoteFiveDistinctWords_Accepted verifies that a quote post
 // with exactly 5 distinct words passes the word-count validation.
 // Uses a testableService with a fake repo so the success path does not panic.
+// A valid ShareInitiatedAt (6 seconds ago) is provided to satisfy the share
+// delay invariant (CLAUDE.md §2.2).
 func TestCreatePost_QuoteFiveDistinctWords_Accepted(t *testing.T) {
 	quotedID := uuid.New().String()
 	content := "one two three four five"
+	ts := time.Now().UTC().Add(-6 * time.Second)
 	fake := &fakeRepo{
 		createFn: func(_ context.Context, _ Post, _ []uuid.UUID, _ []string) error { return nil },
 		getByIDFn: func(_ context.Context, id uuid.UUID) (Post, error) {
@@ -804,9 +815,10 @@ func TestCreatePost_QuoteFiveDistinctWords_Accepted(t *testing.T) {
 	svc := newTestableService(fake)
 
 	_, err := svc.createPost(context.Background(), uuid.New(), CreatePostRequest{
-		PostType:     PostTypeQuote,
-		Content:      content,
-		QuotedPostID: &quotedID,
+		PostType:         PostTypeQuote,
+		Content:          content,
+		QuotedPostID:     &quotedID,
+		ShareInitiatedAt: &ts,
 	})
 	if err != nil {
 		t.Errorf("createPost quote with 5 distinct words returned unexpected error: %v", err)
