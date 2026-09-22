@@ -27,6 +27,18 @@ const (
 	// The normalization strategy here (lowercase, strip leading/trailing
 	// non-alphanumeric) must match the Flutter client implementation.
 	minQuoteWords = 5
+
+	// minShareDelay is the minimum elapsed time required between the client
+	// initiating a share/quote action and the server receiving the request.
+	// This enforces the mandatory 5-second countdown at the backend layer
+	// (CLAUDE.md §2.2, §18 rule 9). Client-side countdown is a UX guard only.
+	minShareDelay = 5 * time.Second
+
+	// shareClockSkewTolerance is the maximum amount of time that a
+	// share_initiated_at timestamp may be in the future before being rejected.
+	// This defensive allowance handles minor NTP drift between client devices
+	// and the server. Values beyond this tolerance are implausible and rejected.
+	shareClockSkewTolerance = 30 * time.Second
 )
 
 // hashtagPattern matches #word tokens where word begins with a letter and
@@ -182,6 +194,18 @@ func (s *Service) CreatePost(ctx context.Context, authorID uuid.UUID, req Create
 		if countDistinctWords(req.Content) < minQuoteWords {
 			return PostDTO{}, apierror.NewAPIError(apierror.CodeValidation,
 				fmt.Sprintf("quote post content must contain at least %d distinct words", minQuoteWords))
+		}
+	}
+
+	// Share/quote delay enforcement (CLAUDE.md §2.2, §18 rules 9 and 10).
+	// The backend is the authoritative enforcement point. The client-supplied
+	// share_initiated_at timestamp is validated against the server's clock.
+	// For "repost" and "quote" types this field is required; for other types it
+	// must be absent (a present value on an original/reply is silently ignored
+	// to reduce brittleness — only the absence on repost/quote matters).
+	if req.PostType == PostTypeRepost || req.PostType == PostTypeQuote {
+		if err := validateShareDelay(req.ShareInitiatedAt); err != nil {
+			return PostDTO{}, err
 		}
 	}
 
@@ -548,6 +572,45 @@ func countDistinctWords(content string) int {
 		seen[word] = struct{}{}
 	}
 	return len(seen)
+}
+
+// validateShareDelay enforces the mandatory 5-second share/quote delay.
+//
+// Rules (CLAUDE.md §2.2):
+//  1. shareInitiatedAt must not be nil — the client must supply it.
+//  2. shareInitiatedAt must not be more than shareClockSkewTolerance (30s)
+//     in the future — implausible values indicate clock manipulation.
+//  3. time.Since(shareInitiatedAt) must be >= minShareDelay (5s).
+//
+// The server uses time.Now().UTC() as its authoritative reference. The
+// client-supplied value is validated; it is never trusted as authoritative.
+//
+// Returns a *apierror.APIError with CodeValidation on any violation.
+func validateShareDelay(shareInitiatedAt *time.Time) error {
+	if shareInitiatedAt == nil {
+		return apierror.NewAPIError(apierror.CodeValidation,
+			"share_initiated_at is required for repost and quote posts")
+	}
+
+	now := time.Now().UTC()
+	initiated := shareInitiatedAt.UTC()
+
+	// Reject timestamps that are implausibly far in the future.
+	// Allow up to shareClockSkewTolerance (30s) for NTP drift.
+	if initiated.After(now.Add(shareClockSkewTolerance)) {
+		return apierror.NewAPIError(apierror.CodeValidation,
+			"share_initiated_at is too far in the future")
+	}
+
+	// Enforce the minimum delay. time.Since(initiated) is equivalent to
+	// now.Sub(initiated); future values produce a negative duration, so this
+	// check also catches mildly future timestamps within the skew window.
+	if now.Sub(initiated) < minShareDelay {
+		return apierror.NewAPIError(apierror.CodeValidation,
+			"share action must be initiated at least 5 seconds before submission")
+	}
+
+	return nil
 }
 
 // extractMentions scans content for @handle tokens and returns the unique

@@ -99,6 +99,21 @@ type CreatePostRequest struct {
 	PostType     PostType `json:"post_type"`
 	ParentID     *string  `json:"parent_id,omitempty"`
 	QuotedPostID *string  `json:"quoted_post_id,omitempty"`
+
+	// ShareInitiatedAt is the UTC timestamp at which the client initiated the
+	// share/quote action (i.e. when the mandatory 5-second countdown began).
+	// Required for post_type "repost" and "quote"; must be absent or nil for
+	// "original" and "reply".
+	//
+	// The backend measures elapsed time as time.Since(ShareInitiatedAt) against
+	// its own clock. The client-supplied value is validated but never trusted for
+	// business-logic purposes beyond "did the client start the countdown at least
+	// 5 seconds ago?".
+	//
+	// Clock-skew tolerance: values up to 30 seconds in the future are accepted to
+	// defend against minor NTP drift between client and server. Values more than
+	// 30 seconds in the future are rejected as implausible.
+	ShareInitiatedAt *time.Time `json:"share_initiated_at,omitempty"`
 }
 
 // ToDTO maps an internal Post to a public PostDTO.
