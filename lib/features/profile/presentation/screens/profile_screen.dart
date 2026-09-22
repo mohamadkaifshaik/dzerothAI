@@ -7,6 +7,10 @@ import '../../../../features/block/presentation/bloc/block_bloc.dart';
 import '../../../../features/follow/presentation/bloc/follow_bloc.dart';
 import '../../../../features/report/domain/repositories/report_repository.dart';
 import '../../../../features/report/presentation/widgets/report_sheet.dart';
+import '../../../../core/error/result.dart';
+import '../../../../features/title/domain/entities/user_title.dart';
+import '../../../../features/title/domain/repositories/title_repository.dart';
+import '../../../../features/title/presentation/widgets/title_badge_widget.dart';
 import '../../domain/entities/own_profile.dart';
 import '../../domain/entities/profile.dart';
 import '../bloc/profile_bloc.dart';
@@ -40,10 +44,17 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  /// Future holding the primary title for this profile's userId.
+  ///
+  /// Loaded once on init and passed to a [FutureBuilder] in the header.
+  /// This avoids a full BLoC for a single, read-only, non-interactive lookup.
+  late Future<TitleSummary?> _primaryTitleFuture;
+
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _primaryTitleFuture = _fetchPrimaryTitle();
 
     // For other users' profiles, check the initial follow status.
     if (!widget.isOwnProfile) {
@@ -51,6 +62,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (authState is AuthAuthenticated) {
         context.read<FollowBloc>().add(const FollowStatusCheckRequested());
       }
+    }
+  }
+
+  Future<TitleSummary?> _fetchPrimaryTitle() async {
+    final repo = _tryReadTitleRepo();
+    if (repo == null) return null;
+    final result = await repo.getUserPrimaryTitle(widget.userId);
+    return switch (result) {
+      Success(:final value) => value,
+      Err() => null,
+    };
+  }
+
+  TitleRepository? _tryReadTitleRepo() {
+    try {
+      return context.read<TitleRepository>();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -198,6 +227,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                 // Display name
                 Text(profile.displayName, style: theme.textTheme.titleLarge),
+                const SizedBox(height: 4),
+
+                // Primary title badge — fetched via GET /titles/{userId}/primary.
+                // Uses FutureBuilder so the badge appears without blocking the
+                // profile header and silently hides on error/null.
+                FutureBuilder<TitleSummary?>(
+                  future: _primaryTitleFuture,
+                  builder: (context, snapshot) {
+                    return TitleBadgeWidget(title: snapshot.data);
+                  },
+                ),
                 const SizedBox(height: 2),
 
                 // Handle

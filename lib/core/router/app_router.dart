@@ -47,6 +47,9 @@ import '../../features/hashtag/presentation/screens/hashtag_feed_screen.dart';
 import '../../features/studio/domain/repositories/studio_repository.dart';
 import '../../features/studio/presentation/bloc/studio_bloc.dart';
 import '../../features/studio/presentation/screens/studio_screen.dart';
+import '../../features/title/domain/repositories/title_repository.dart';
+import '../../features/title/presentation/bloc/title_library_bloc.dart';
+import '../../features/title/presentation/screens/title_library_screen.dart';
 
 /// A [ChangeNotifier] that listens to an [AuthBloc] stream and notifies
 /// go_router's [refreshListenable] when auth state changes.
@@ -84,6 +87,7 @@ GoRouter createAppRouter({
   required SettingsRepository Function() settingsRepositoryFactory,
   required ReportRepository Function() reportRepositoryFactory,
   required HashtagRepository Function(String tag) hashtagRepositoryFactory,
+  required TitleRepository Function() titleRepositoryFactory,
 }) {
   final refreshStream = GoRouterRefreshStream(authBloc.stream);
 
@@ -196,6 +200,8 @@ GoRouter createAppRouter({
       // User profile (outside shell so it can be pushed as a full page).
       // ReportRepository is provided here so ProfileScreen can open
       // ReportSheet.forUser via context.read<ReportRepository>().
+      // TitleRepository is provided here so ProfileScreen can fetch the
+      // primary title badge via context.read<TitleRepository>() (optional).
       GoRoute(
         path: '/users/:id',
         builder: (context, state) {
@@ -204,8 +210,15 @@ GoRouter createAppRouter({
           final isOwn =
               authState is AuthAuthenticated && authState.userId == userId;
 
-          return RepositoryProvider<ReportRepository>(
-            create: (_) => reportRepositoryFactory(),
+          return MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<ReportRepository>(
+                create: (_) => reportRepositoryFactory(),
+              ),
+              RepositoryProvider<TitleRepository>(
+                create: (_) => titleRepositoryFactory(),
+              ),
+            ],
             child: MultiBlocProvider(
               providers: [
                 BlocProvider(
@@ -280,6 +293,26 @@ GoRouter createAppRouter({
               SettingsBloc(settingsRepository: settingsRepositoryFactory()),
           child: const SettingsScreen(),
         ),
+        routes: [
+          // Title library — authenticated; navigated to from Settings.
+          GoRoute(
+            path: 'title',
+            redirect: (context, state) {
+              final authState = authBloc.state;
+              if (authState is! AuthAuthenticated) return '/auth/login';
+              return null;
+            },
+            builder: (context, state) => RepositoryProvider<TitleRepository>(
+              create: (_) => titleRepositoryFactory(),
+              child: BlocProvider(
+                create: (ctx) => TitleLibraryBloc(
+                  titleRepository: ctx.read<TitleRepository>(),
+                ),
+                child: const TitleLibraryScreen(),
+              ),
+            ),
+          ),
+        ],
       ),
 
       // Post compose — requires authentication; outside shell (full-page).

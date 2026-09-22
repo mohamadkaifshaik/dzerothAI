@@ -5,16 +5,24 @@ enum NotificationEvent {
   follow,
   mention,
   reply,
-  reaction;
+  reaction,
+  titleUnlocked,
+  titleGracePeriod;
 
   /// Parses the backend ENUM string value.
+  ///
+  /// All known values are mapped explicitly. Unknown future values fall back
+  /// to [reaction] as a safe default rather than using a wildcard.
   static NotificationEvent fromString(String value) {
     return switch (value) {
       'follow' => follow,
       'mention' => mention,
       'reply' => reply,
       'reaction' => reaction,
-      _ => reaction, // safe default for unknown future values
+      'title_unlocked' => titleUnlocked,
+      'title_grace_period' => titleGracePeriod,
+      // Safe default for unknown future event types from the backend.
+      String() => reaction,
     };
   }
 
@@ -24,6 +32,8 @@ enum NotificationEvent {
     mention => 'mentioned you',
     reply => 'replied to your post',
     reaction => 'reacted to your post',
+    titleUnlocked => 'you unlocked a new title',
+    titleGracePeriod => 'a title is in grace period',
   };
 }
 

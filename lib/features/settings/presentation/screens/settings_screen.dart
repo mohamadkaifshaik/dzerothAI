@@ -115,6 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               SettingsPrivacyToggled(isPrivate: value),
             ),
             onSuspendTap: () => _confirmSuspend(context),
+            onManageTitleTap: () => context.push('/settings/title'),
           );
         },
       ),
@@ -141,12 +142,14 @@ class _SettingsBody extends StatelessWidget {
     required this.isSaving,
     required this.onPrivacyChanged,
     required this.onSuspendTap,
+    required this.onManageTitleTap,
   });
 
   final bool isPrivate;
   final bool isSaving;
   final ValueChanged<bool> onPrivacyChanged;
   final VoidCallback onSuspendTap;
+  final VoidCallback onManageTitleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -170,6 +173,17 @@ class _SettingsBody extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.lock_outline),
+        ),
+        const Divider(),
+
+        // Titles section
+        _SectionHeader(title: 'Title'),
+        ListTile(
+          leading: const Icon(Icons.workspace_premium_outlined),
+          title: const Text('Manage Title'),
+          subtitle: const Text('Choose your primary title badge.'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onManageTitleTap,
         ),
         const Divider(),
 

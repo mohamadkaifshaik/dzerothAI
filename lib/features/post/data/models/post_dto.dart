@@ -9,6 +9,7 @@ class PostAuthorDto {
     required this.handle,
     required this.displayName,
     this.avatarUrl,
+    this.primaryTitle,
   });
 
   final String id;
@@ -16,13 +17,23 @@ class PostAuthorDto {
   final String displayName;
   final String? avatarUrl;
 
+  /// The author's primary title badge. Null when absent or not set.
+  final PostAuthorTitleDto? primaryTitle;
+
   factory PostAuthorDto.fromJson(Map<String, dynamic> json) {
+    final rawTitle = json['primary_title'];
+    PostAuthorTitleDto? titleDto;
+    if (rawTitle is Map<String, dynamic>) {
+      titleDto = PostAuthorTitleDto.fromJson(rawTitle);
+    }
+
     return PostAuthorDto(
       id: json['ID'] as String? ?? json['id'] as String,
       handle: json['Handle'] as String? ?? json['handle'] as String,
       displayName:
           json['DisplayName'] as String? ?? json['display_name'] as String,
       avatarUrl: json['AvatarURL'] as String? ?? json['avatar_url'] as String?,
+      primaryTitle: titleDto,
     );
   }
 
@@ -31,7 +42,29 @@ class PostAuthorDto {
     handle: handle,
     displayName: displayName,
     avatarUrl: avatarUrl,
+    primaryTitle: primaryTitle?.toEntity(),
   );
+}
+
+/// DTO for the `primary_title` sub-object on author payloads.
+///
+/// Kept separate from [TitleSummaryDto] in the title feature to avoid a
+/// cross-feature data-layer coupling — the post feature owns its own DTOs.
+class PostAuthorTitleDto {
+  const PostAuthorTitleDto({required this.slug, required this.displayName});
+
+  final String slug;
+  final String displayName;
+
+  factory PostAuthorTitleDto.fromJson(Map<String, dynamic> json) {
+    return PostAuthorTitleDto(
+      slug: (json['slug'] as String?) ?? '',
+      displayName: (json['display_name'] as String?) ?? '',
+    );
+  }
+
+  PostAuthorTitle toEntity() =>
+      PostAuthorTitle(slug: slug, displayName: displayName);
 }
 
 /// DTO for a single post (matches Go PostDTO struct).

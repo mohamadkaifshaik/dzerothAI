@@ -8,6 +8,8 @@ import '../../../../features/bookmark/presentation/bloc/bookmark_toggle_bloc.dar
 import '../../../../features/reaction/presentation/bloc/reaction_toggle_bloc.dart';
 import '../../../../features/report/domain/repositories/report_repository.dart';
 import '../../../../features/report/presentation/widgets/report_sheet.dart';
+import '../../../../features/title/domain/entities/user_title.dart';
+import '../../../../features/title/presentation/widgets/title_badge_widget.dart';
 import '../../domain/entities/post.dart';
 
 /// Renders a single post in a list or feed.
@@ -451,6 +453,13 @@ class _AuthorRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final formatted = _formatTimestamp(createdAt);
+
+    // Convert PostAuthorTitle → TitleSummary for the badge widget.
+    final rawTitle = author.primaryTitle;
+    final titleSummary = rawTitle != null
+        ? TitleSummary(slug: rawTitle.slug, displayName: rawTitle.displayName)
+        : null;
+
     return Row(
       children: [
         Flexible(
@@ -463,6 +472,11 @@ class _AuthorRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 4),
+        // Primary title badge — zero extra API calls (data from post response).
+        if (titleSummary != null) ...[
+          TitleBadgeWidget(title: titleSummary),
+          const SizedBox(width: 4),
+        ],
         Text(
           '@${author.handle}',
           style: theme.textTheme.bodySmall?.copyWith(

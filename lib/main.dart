@@ -33,6 +33,8 @@ import 'features/settings/data/repositories/settings_repository_impl.dart';
 import 'features/settings/domain/repositories/settings_repository.dart';
 import 'features/studio/data/repositories/studio_repository_impl.dart';
 import 'features/studio/domain/repositories/studio_repository.dart';
+import 'features/title/data/repositories/title_repository_impl.dart';
+import 'features/title/domain/repositories/title_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -139,6 +141,11 @@ void main() async {
   // Auth is required. The shared authenticated Dio instance is used.
   StudioRepository studioRepositoryFactory() => StudioRepositoryImpl(dio: dio);
 
+  // --- Title repository factory ---
+  // Auth is required for /titles/me endpoints; /titles/{userId}/primary is public.
+  // The shared Dio instance attaches the token when available.
+  TitleRepository titleRepositoryFactory() => TitleRepositoryImpl(dio: dio);
+
   // --- Report repository factory ---
   // Auth is required — the shared authenticated Dio instance is used.
   ReportRepository reportRepositoryFactory() => ReportRepositoryImpl(dio: dio);
@@ -165,6 +172,7 @@ void main() async {
     studioRepositoryFactory: studioRepositoryFactory,
     reportRepositoryFactory: reportRepositoryFactory,
     hashtagRepositoryFactory: hashtagRepositoryFactory,
+    titleRepositoryFactory: titleRepositoryFactory,
   );
 
   runApp(DzerothApp(authBloc: authBloc, router: router));

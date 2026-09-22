@@ -1,14 +1,30 @@
 import 'package:equatable/equatable.dart';
 
+/// A compact value object representing an author's primary title badge.
+///
+/// Only [slug] and [displayName] are surfaced here.
+/// Per CLAUDE.md §2.3, no social-validation metrics are included.
+class PostAuthorTitle extends Equatable {
+  const PostAuthorTitle({required this.slug, required this.displayName});
+
+  final String slug;
+  final String displayName;
+
+  @override
+  List<Object?> get props => [slug, displayName];
+}
+
 /// Author information embedded in a post.
 ///
 /// Carries only display fields. No social-validation metrics are included.
+/// [primaryTitle] is the author's current primary title badge (null when none).
 class PostAuthor extends Equatable {
   const PostAuthor({
     required this.id,
     required this.handle,
     required this.displayName,
     this.avatarUrl,
+    this.primaryTitle,
   });
 
   final String id;
@@ -16,8 +32,13 @@ class PostAuthor extends Equatable {
   final String displayName;
   final String? avatarUrl;
 
+  /// The author's primary title badge. Null when the author has no primary title.
+  /// This is purely a display field — do NOT display it as a social-validation
+  /// metric or count.
+  final PostAuthorTitle? primaryTitle;
+
   @override
-  List<Object?> get props => [id, handle, displayName, avatarUrl];
+  List<Object?> get props => [id, handle, displayName, avatarUrl, primaryTitle];
 }
 
 /// A single Dzeroth post.

@@ -75,14 +75,18 @@ void main() {
     test(
       'PostAuthor entity has no social-validation metric fields in props',
       () {
-        // PostAuthor.props: id, handle, displayName, avatarUrl — exactly 4.
+        // PostAuthor.props: id, handle, displayName, avatarUrl, primaryTitle
+        // — exactly 5. primaryTitle is a display/identity field (title badge),
+        // NOT a social-validation metric. No follower count or equivalent
+        // metric may ever appear here (CLAUDE.md §2.3).
         final props = _author.props;
 
         expect(
           props.length,
-          4,
+          5,
           reason:
-              'PostAuthor.props must have exactly 4 entries — '
+              'PostAuthor.props must have exactly 5 entries — '
+              'id, handle, displayName, avatarUrl, primaryTitle; '
               'no follower count or equivalent metric (CLAUDE.md §2.3)',
         );
       },
