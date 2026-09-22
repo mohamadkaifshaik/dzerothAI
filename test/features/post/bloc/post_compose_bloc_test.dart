@@ -74,6 +74,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -100,6 +101,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -125,6 +127,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -139,6 +142,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -161,6 +165,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -186,6 +191,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer(
             (_) async => const Err(ServerFailure('post creation failed')),
@@ -238,6 +244,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -268,6 +275,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -320,6 +328,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -345,6 +354,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -394,6 +404,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -433,6 +444,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -500,6 +512,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -525,6 +538,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -592,6 +606,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           );
         },
@@ -607,6 +622,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -653,6 +669,7 @@ void main() {
               content: any(named: 'content'),
               parentId: any(named: 'parentId'),
               quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
             ),
           ).thenAnswer((_) async => Success(_createdPost));
           return PostComposeBloc(postRepository: mockRepo);
@@ -684,6 +701,225 @@ void main() {
           const PostComposeCountdown(secondsRemaining: 1, totalSeconds: 5),
           const PostComposeSubmitting(),
           PostComposeSuccess(post: _createdPost),
+        ],
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // share_initiated_at — included for repost/quote, absent for others
+    // (CLAUDE.md §2.2 — backend enforcement of 5-second delay)
+    // -----------------------------------------------------------------------
+
+    group('share_initiated_at field (CLAUDE.md §2.2)', () {
+      late DateTime? capturedShareInitiatedAt;
+
+      setUp(() {
+        capturedShareInitiatedAt = null;
+      });
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'repost submission includes non-null shareInitiatedAt after countdown',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
+            ),
+          ).thenAnswer((invocation) async {
+            capturedShareInitiatedAt =
+                invocation.namedArguments[#shareInitiatedAt] as DateTime?;
+            return Success(_createdPost);
+          });
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'repost',
+              quotedPostId: 'post-xyz',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(4));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(3));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(2));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(1));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(0));
+          await Future<void>.delayed(Duration.zero);
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 4, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 3, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 2, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 1, totalSeconds: 5),
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+        verify: (_) {
+          expect(
+            capturedShareInitiatedAt,
+            isNotNull,
+            reason:
+                'shareInitiatedAt must be non-null for repost submissions',
+          );
+        },
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'quote submission includes non-null shareInitiatedAt after countdown',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
+            ),
+          ).thenAnswer((invocation) async {
+            capturedShareInitiatedAt =
+                invocation.namedArguments[#shareInitiatedAt] as DateTime?;
+            return Success(_createdPost);
+          });
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'quote',
+              content: 'alpha beta gamma delta epsilon',
+              quotedPostId: 'post-abc',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(4));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(3));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(2));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(1));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(0));
+          await Future<void>.delayed(Duration.zero);
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 4, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 3, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 2, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 1, totalSeconds: 5),
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+        verify: (_) {
+          expect(
+            capturedShareInitiatedAt,
+            isNotNull,
+            reason:
+                'shareInitiatedAt must be non-null for quote submissions',
+          );
+        },
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'original post does NOT include shareInitiatedAt',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
+            ),
+          ).thenAnswer((invocation) async {
+            capturedShareInitiatedAt =
+                invocation.namedArguments[#shareInitiatedAt] as DateTime?;
+            return Success(_createdPost);
+          });
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) => bloc.add(
+          const PostComposeSubmitted(
+            postType: 'original',
+            content: 'Hello world this is fine',
+          ),
+        ),
+        expect: () => [
+          const PostComposeSubmitting(),
+          PostComposeSuccess(post: _createdPost),
+        ],
+        verify: (_) {
+          expect(
+            capturedShareInitiatedAt,
+            isNull,
+            reason:
+                'shareInitiatedAt must be null for original post submissions',
+          );
+        },
+      );
+
+      blocTest<PostComposeBloc, PostComposeState>(
+        'timing validation error from backend surfaces as PostComposeError',
+        build: () {
+          when(
+            () => mockRepo.createPost(
+              postType: any(named: 'postType'),
+              content: any(named: 'content'),
+              parentId: any(named: 'parentId'),
+              quotedPostId: any(named: 'quotedPostId'),
+              shareInitiatedAt: any(named: 'shareInitiatedAt'),
+            ),
+          ).thenAnswer(
+            (_) async => const Err(
+              ValidationFailure(
+                message:
+                    'share action must be initiated at least 5 seconds before submission',
+              ),
+            ),
+          );
+          return PostComposeBloc(postRepository: mockRepo);
+        },
+        act: (bloc) async {
+          bloc.add(
+            const PostComposeSubmitted(
+              postType: 'repost',
+              quotedPostId: 'post-xyz',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(4));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(3));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(2));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(1));
+          await Future<void>.delayed(Duration.zero);
+          bloc.add(const PostComposeCountdownTicked(0));
+          await Future<void>.delayed(Duration.zero);
+        },
+        expect: () => [
+          const PostComposeCountdown(secondsRemaining: 5, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 4, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 3, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 2, totalSeconds: 5),
+          const PostComposeCountdown(secondsRemaining: 1, totalSeconds: 5),
+          const PostComposeSubmitting(),
+          isA<PostComposeError>().having(
+            (s) => s.failure,
+            'failure',
+            isA<ValidationFailure>(),
+          ),
         ],
       );
     });

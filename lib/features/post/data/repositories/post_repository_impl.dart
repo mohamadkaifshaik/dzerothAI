@@ -27,12 +27,19 @@ class PostRepositoryImpl implements PostRepository {
     String? content,
     String? parentId,
     String? quotedPostId,
+    DateTime? shareInitiatedAt,
   }) async {
     try {
       final body = <String, dynamic>{'post_type': postType};
       if (content != null) body['content'] = content;
       if (parentId != null) body['parent_id'] = parentId;
       if (quotedPostId != null) body['quoted_post_id'] = quotedPostId;
+      // Include share_initiated_at for repost and quote types so the backend
+      // can verify the mandatory 5-second delay (CLAUDE.md §2.2).
+      // The value is omitted for original and reply types.
+      if (shareInitiatedAt != null) {
+        body['share_initiated_at'] = shareInitiatedAt.toUtc().toIso8601String();
+      }
 
       final response = await dio.post<Map<String, dynamic>>(
         '/api/v1/posts',

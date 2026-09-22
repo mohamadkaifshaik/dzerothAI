@@ -63,6 +63,10 @@ class PostComposeBloc extends Bloc<PostComposeEvent, PostComposeState> {
   Timer? _countdownTimer;
   PostComposeSubmitted? _pendingSubmission;
 
+  // The UTC timestamp at which the current countdown was initiated.
+  // Sent to the backend as share_initiated_at for repost/quote submissions.
+  DateTime? _shareInitiatedAt;
+
   Future<void> _onSubmitted(
     PostComposeSubmitted event,
     Emitter<PostComposeState> emit,
@@ -122,12 +126,21 @@ class PostComposeBloc extends Bloc<PostComposeEvent, PostComposeState> {
   }
 
   /// Starts (or restarts) the 5-second countdown timer.
+  ///
+  /// Captures [_shareInitiatedAt] at the moment the countdown begins.
+  /// This timestamp is sent to the backend as `share_initiated_at` so the
+  /// server can verify the mandatory 5-second delay was respected
+  /// (CLAUDE.md §2.2 — backend enforcement is authoritative).
   void _startCountdown(
     PostComposeSubmitted event,
     Emitter<PostComposeState> emit,
   ) {
     _countdownTimer?.cancel();
     _pendingSubmission = event;
+    // Record the UTC instant when the countdown began. This is sent to the
+    // backend as share_initiated_at so the server can independently verify
+    // that at least 5 seconds elapsed before submission.
+    _shareInitiatedAt = DateTime.now().toUtc();
 
     int remaining = countdownSeconds;
     emit(
@@ -181,6 +194,7 @@ class PostComposeBloc extends Bloc<PostComposeEvent, PostComposeState> {
     _countdownTimer?.cancel();
     _countdownTimer = null;
     _pendingSubmission = null;
+    _shareInitiatedAt = null;
     emit(const PostComposeInitial());
   }
 
@@ -197,11 +211,21 @@ class PostComposeBloc extends Bloc<PostComposeEvent, PostComposeState> {
   ) async {
     emit(const PostComposeSubmitting());
 
+    // For repost and quote types, include the countdown start timestamp so
+    // the backend can verify the mandatory 5-second delay (CLAUDE.md §2.2).
+    // For original and reply types, share_initiated_at is not sent.
+    final isShareType =
+        event.postType == 'repost' || event.postType == 'quote';
+    final shareInitiatedAt = isShareType ? _shareInitiatedAt : null;
+    // Clear the stored timestamp after use.
+    _shareInitiatedAt = null;
+
     final result = await _repository.createPost(
       postType: event.postType,
       content: event.content,
       parentId: event.parentId,
       quotedPostId: event.quotedPostId,
+      shareInitiatedAt: shareInitiatedAt,
     );
 
     switch (result) {
@@ -241,6 +265,7 @@ class PostComposeBloc extends Bloc<PostComposeEvent, PostComposeState> {
   Future<void> close() {
     _countdownTimer?.cancel();
     _countdownTimer = null;
+    _shareInitiatedAt = null;
     return super.close();
   }
 }
