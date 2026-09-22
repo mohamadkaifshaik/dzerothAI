@@ -38,6 +38,11 @@ final _resultWithPrimary = MyTitlesResult(
   primaryId: 'id-1',
 );
 
+final _resultWithPrimary2 = MyTitlesResult(
+  titles: [_title1, _title2],
+  primaryId: 'id-2',
+);
+
 final _resultNoPrimary = MyTitlesResult(
   titles: [_title1, _title2],
   primaryId: null,
@@ -147,15 +152,22 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // TestTitleLibraryBloc_SetPrimaryTitle
+  // TestTitleLibraryBloc_SetPrimaryTitle — pessimistic mutation
   // ---------------------------------------------------------------------------
 
   group('TestTitleLibraryBloc_SetPrimaryTitle', () {
     blocTest<TitleLibraryBloc, TitleLibraryState>(
-      'optimistically sets primaryId on success',
+      'Mutating state preserves OLD primaryId — does NOT show new id before API responds',
       build: () {
-        when(() => mockRepo.getMyTitles())
-            .thenAnswer((_) async => Success(_resultNoPrimary));
+        // Use a call counter so the first getMyTitles call returns _resultWithPrimary
+        // and the second (post-mutation) returns _resultWithPrimary2.
+        var getMyTitlesCallCount = 0;
+        when(() => mockRepo.getMyTitles()).thenAnswer((_) async {
+          getMyTitlesCallCount++;
+          return getMyTitlesCallCount == 1
+              ? Success(_resultWithPrimary)
+              : Success(_resultWithPrimary2);
+        });
         when(() => mockRepo.setPrimaryTitle('id-2'))
             .thenAnswer((_) async => const Success('legend'));
         return TitleLibraryBloc(titleRepository: mockRepo);
@@ -165,20 +177,55 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         bloc.add(const SetPrimaryTitle('id-2'));
       },
-      // BLoC deduplicate: optimistic emit and confirmed emit are identical
-      // states — the second emit is a no-op because the state is unchanged.
-      // Equatable equality means only 3 distinct emissions occur.
       expect: () => [
         const TitleLibraryLoading(),
-        // Initial load — no primary.
-        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: null),
-        // Optimistic update (confirmed emit is deduplicated by Equatable).
+        // Server-confirmed initial load — primaryId is 'id-1'.
+        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
+        // Mutating: old primaryId 'id-1' is preserved — 'id-2' is NOT shown yet.
+        TitleLibraryMutating(titles: [_title1, _title2], primaryId: 'id-1'),
+        // Server-confirmed after getMyTitles: primaryId is now 'id-2'.
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-2'),
       ],
     );
 
     blocTest<TitleLibraryBloc, TitleLibraryState>(
-      'reverts to previous primaryId when setPrimaryTitle fails',
+      'SetPrimaryTitle success: calls setPrimaryTitle then getMyTitles; '
+      'final state reflects server-returned primaryId',
+      build: () {
+        // First call: initial load (no primary); second call: post-mutation (id-1).
+        var getMyTitlesCallCount = 0;
+        when(() => mockRepo.getMyTitles()).thenAnswer((_) async {
+          getMyTitlesCallCount++;
+          return getMyTitlesCallCount == 1
+              ? Success(_resultNoPrimary)
+              : Success(_resultWithPrimary);
+        });
+        when(() => mockRepo.setPrimaryTitle('id-1'))
+            .thenAnswer((_) async => const Success('pioneer'));
+        return TitleLibraryBloc(titleRepository: mockRepo);
+      },
+      act: (bloc) async {
+        bloc.add(const LoadTitleLibrary());
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const SetPrimaryTitle('id-1'));
+      },
+      expect: () => [
+        const TitleLibraryLoading(),
+        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: null),
+        // Mutating — old primaryId null preserved.
+        TitleLibraryMutating(titles: [_title1, _title2], primaryId: null),
+        // Server confirmed primaryId: 'id-1'.
+        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
+      ],
+      verify: (_) {
+        verify(() => mockRepo.setPrimaryTitle('id-1')).called(1);
+        // getMyTitles called twice: once for initial load, once after mutation.
+        verify(() => mockRepo.getMyTitles()).called(2);
+      },
+    );
+
+    blocTest<TitleLibraryBloc, TitleLibraryState>(
+      'SetPrimaryTitle failure: previous primaryId preserved; error state emitted',
       build: () {
         when(() => mockRepo.getMyTitles())
             .thenAnswer((_) async => Success(_resultWithPrimary));
@@ -193,14 +240,57 @@ void main() {
       },
       expect: () => [
         const TitleLibraryLoading(),
-        // Loaded with original primary.
+        // Loaded with original primary 'id-1'.
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
-        // Optimistic: primaryId switched to id-2.
-        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-2'),
-        // Reverted on failure.
+        // Mutating — old primaryId 'id-1' preserved.
+        TitleLibraryMutating(titles: [_title1, _title2], primaryId: 'id-1'),
+        // Restored to prior confirmed state on failure — 'id-1' not 'id-2'.
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
-        // Error state after revert.
-        isA<TitleLibraryError>(),
+        // Error state surfaced.
+        isA<TitleLibraryError>().having(
+          (s) => s.failure,
+          'failure',
+          isA<ServerFailure>(),
+        ),
+      ],
+      verify: (_) {
+        verify(() => mockRepo.setPrimaryTitle('id-2')).called(1);
+        // getMyTitles NOT called after a failed setPrimaryTitle.
+        verify(() => mockRepo.getMyTitles()).called(1);
+      },
+    );
+
+    blocTest<TitleLibraryBloc, TitleLibraryState>(
+      'SetPrimaryTitle succeeds but getMyTitles fails: '
+      'error emitted, no fabricated local primaryId',
+      build: () {
+        // First call: initial load succeeds; second call (post-mutation) fails.
+        var getMyTitlesCallCount = 0;
+        when(() => mockRepo.getMyTitles()).thenAnswer((_) async {
+          getMyTitlesCallCount++;
+          return getMyTitlesCallCount == 1
+              ? Success(_resultWithPrimary)
+              : const Err(NetworkFailure());
+        });
+        when(() => mockRepo.setPrimaryTitle('id-2'))
+            .thenAnswer((_) async => const Success('legend'));
+        return TitleLibraryBloc(titleRepository: mockRepo);
+      },
+      act: (bloc) async {
+        bloc.add(const LoadTitleLibrary());
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const SetPrimaryTitle('id-2'));
+      },
+      expect: () => [
+        const TitleLibraryLoading(),
+        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
+        TitleLibraryMutating(titles: [_title1, _title2], primaryId: 'id-1'),
+        // Error emitted — no fabricated local primaryId 'id-2' in any state.
+        isA<TitleLibraryError>().having(
+          (s) => s.failure,
+          'failure',
+          isA<NetworkFailure>(),
+        ),
       ],
     );
 
@@ -215,15 +305,22 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // TestTitleLibraryBloc_ClearPrimaryTitle
+  // TestTitleLibraryBloc_ClearPrimaryTitle — pessimistic mutation
   // ---------------------------------------------------------------------------
 
   group('TestTitleLibraryBloc_ClearPrimaryTitle', () {
     blocTest<TitleLibraryBloc, TitleLibraryState>(
-      'optimistically clears primaryId then confirms on success',
+      'ClearPrimaryTitle success: calls clearPrimaryTitle then getMyTitles; '
+      'final state reflects server-confirmed null primaryId',
       build: () {
-        when(() => mockRepo.getMyTitles())
-            .thenAnswer((_) async => Success(_resultWithPrimary));
+        // First call: initial load with primary 'id-1'; second call (post-clear) no primary.
+        var getMyTitlesCallCount = 0;
+        when(() => mockRepo.getMyTitles()).thenAnswer((_) async {
+          getMyTitlesCallCount++;
+          return getMyTitlesCallCount == 1
+              ? Success(_resultWithPrimary)
+              : Success(_resultNoPrimary);
+        });
         when(() => mockRepo.clearPrimaryTitle())
             .thenAnswer((_) async => const Success(null));
         return TitleLibraryBloc(titleRepository: mockRepo);
@@ -235,15 +332,21 @@ void main() {
       },
       expect: () => [
         const TitleLibraryLoading(),
-        // Loaded with primary.
+        // Loaded with primary 'id-1'.
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
-        // Optimistic clear.
+        // Mutating — old primaryId 'id-1' preserved; NOT cleared yet.
+        TitleLibraryMutating(titles: [_title1, _title2], primaryId: 'id-1'),
+        // Server-confirmed: null primaryId.
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: null),
       ],
+      verify: (_) {
+        verify(() => mockRepo.clearPrimaryTitle()).called(1);
+        verify(() => mockRepo.getMyTitles()).called(2);
+      },
     );
 
     blocTest<TitleLibraryBloc, TitleLibraryState>(
-      'reverts to previous primaryId when clearPrimaryTitle fails',
+      'ClearPrimaryTitle failure: previous primaryId preserved; error emitted',
       build: () {
         when(() => mockRepo.getMyTitles())
             .thenAnswer((_) async => Success(_resultWithPrimary));
@@ -259,12 +362,17 @@ void main() {
       expect: () => [
         const TitleLibraryLoading(),
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
-        // Optimistic clear.
-        TitleLibraryLoaded(titles: [_title1, _title2], primaryId: null),
-        // Reverted.
+        // Mutating — old primaryId 'id-1' preserved.
+        TitleLibraryMutating(titles: [_title1, _title2], primaryId: 'id-1'),
+        // Restored to prior confirmed state — primaryId still 'id-1'.
         TitleLibraryLoaded(titles: [_title1, _title2], primaryId: 'id-1'),
         isA<TitleLibraryError>(),
       ],
+      verify: (_) {
+        verify(() => mockRepo.clearPrimaryTitle()).called(1);
+        // getMyTitles NOT called after a failed clearPrimaryTitle.
+        verify(() => mockRepo.getMyTitles()).called(1);
+      },
     );
 
     blocTest<TitleLibraryBloc, TitleLibraryState>(

@@ -51,6 +51,11 @@ class _TitleLibraryScreenState extends State<TitleLibraryScreen> {
             TitleLibraryLoading() => _buildLoading(),
             TitleLibraryLoaded(:final titles, :final primaryId) =>
               _buildBody(context, titles: titles, primaryId: primaryId),
+            // Mutation in-flight: show the existing titles (with the OLD
+            // confirmed primaryId) plus a linear progress indicator at the top.
+            // The primaryId is NOT updated until the server confirms the change.
+            TitleLibraryMutating(:final titles, :final primaryId) =>
+              _buildMutating(context, titles: titles, primaryId: primaryId),
             TitleLibraryError(:final failure) => _buildError(
               context,
               failure.message,
@@ -63,6 +68,26 @@ class _TitleLibraryScreenState extends State<TitleLibraryScreen> {
 
   Widget _buildLoading() {
     return const Center(child: CircularProgressIndicator());
+  }
+
+  /// Renders the current title list with a linear progress bar at the top
+  /// while a set/clear mutation is in-flight.
+  ///
+  /// The primaryId shown here is the OLD server-confirmed value — it does NOT
+  /// change until getMyTitles confirms the new selection from the backend.
+  Widget _buildMutating(
+    BuildContext context, {
+    required List<UserTitle> titles,
+    required String? primaryId,
+  }) {
+    return Column(
+      children: [
+        const LinearProgressIndicator(),
+        Expanded(
+          child: _buildBody(context, titles: titles, primaryId: primaryId),
+        ),
+      ],
+    );
   }
 
   Widget _buildError(BuildContext context, String message) {

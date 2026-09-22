@@ -53,24 +53,32 @@ class TitleLibraryBloc extends Bloc<TitleLibraryEvent, TitleLibraryState> {
     final current = state;
     if (current is! TitleLibraryLoaded) return;
 
-    // Optimistically update primaryId so the UI reflects the change immediately.
-    emit(TitleLibraryLoaded(titles: current.titles, primaryId: event.userTitleId));
+    // Pessimistic: show the current (unchanged) titles while the request is
+    // in-flight. The primaryId shown during mutation is the OLD confirmed value
+    // — NOT the newly requested one.
+    emit(TitleLibraryMutating(titles: current.titles, primaryId: current.primaryId));
 
-    final result = await _repository.setPrimaryTitle(event.userTitleId);
+    final setResult = await _repository.setPrimaryTitle(event.userTitleId);
 
-    switch (result) {
-      case Success():
-        // Primary is already reflected in the optimistic update.
-        // Re-emit the loaded state with confirmed primaryId.
-        emit(
-          TitleLibraryLoaded(
-            titles: current.titles,
-            primaryId: event.userTitleId,
-          ),
-        );
+    switch (setResult) {
       case Err(:final failure):
-        // Revert to previous primary on failure.
+        // API call failed — restore the prior confirmed state and surface error.
         emit(TitleLibraryLoaded(titles: current.titles, primaryId: current.primaryId));
+        emit(TitleLibraryError(failure));
+        return;
+      case Success():
+        break;
+    }
+
+    // API call succeeded — fetch the server-confirmed library to determine the
+    // actual new primaryId. The backend is the source of truth.
+    final getResult = await _repository.getMyTitles();
+
+    switch (getResult) {
+      case Success(:final value):
+        emit(TitleLibraryLoaded(titles: value.titles, primaryId: value.primaryId));
+      case Err(:final failure):
+        // Cannot confirm server state — do NOT fabricate a local primaryId.
         emit(TitleLibraryError(failure));
     }
   }
@@ -82,18 +90,29 @@ class TitleLibraryBloc extends Bloc<TitleLibraryEvent, TitleLibraryState> {
     final current = state;
     if (current is! TitleLibraryLoaded) return;
 
-    // Optimistically clear primary.
-    emit(TitleLibraryLoaded(titles: current.titles, primaryId: null));
+    // Pessimistic: preserve current confirmed state during the API call.
+    emit(TitleLibraryMutating(titles: current.titles, primaryId: current.primaryId));
 
-    final result = await _repository.clearPrimaryTitle();
+    final clearResult = await _repository.clearPrimaryTitle();
 
-    switch (result) {
-      case Success():
-        // Already reflected — nothing more to do.
-        break;
+    switch (clearResult) {
       case Err(:final failure):
-        // Revert to previous primary on failure.
+        // API call failed — restore the prior confirmed state and surface error.
         emit(TitleLibraryLoaded(titles: current.titles, primaryId: current.primaryId));
+        emit(TitleLibraryError(failure));
+        return;
+      case Success():
+        break;
+    }
+
+    // API call succeeded — fetch the server-confirmed library.
+    final getResult = await _repository.getMyTitles();
+
+    switch (getResult) {
+      case Success(:final value):
+        emit(TitleLibraryLoaded(titles: value.titles, primaryId: value.primaryId));
+      case Err(:final failure):
+        // Cannot confirm server state — do NOT fabricate a local primaryId.
         emit(TitleLibraryError(failure));
     }
   }
