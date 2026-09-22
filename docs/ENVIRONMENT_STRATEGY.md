@@ -49,6 +49,8 @@ Authoritative source: `apps/backend/internal/config/config.go`.
 | `LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `CORS_ALLOWED_ORIGINS` | No | `""` | Comma-separated exact origins for CORS (required in staging/production) |
 | `SESSION_CLEANUP_INTERVAL` | No | `1h` | Session cleanup worker interval (Go duration string) |
+| `TITLE_WORKER_INTERVAL` | No | `5m` | Title qualification worker reconciliation interval (Go duration string, e.g. `"5m"`, `"10m"`) |
+| `TITLE_NOTIFICATION_INTERVAL` | No | `1m` | Title notification dispatch worker interval (Go duration string, e.g. `"1m"`, `"5m"`) |
 
 ---
 

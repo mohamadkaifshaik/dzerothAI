@@ -56,6 +56,7 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-037 | Titles | Title notification delivery worker | IMPLEMENTED | Phase 7–9 — `internal/title/notification_worker.go`; unlock and grace_period notifications; `GetPendingUnlockNotifications`/`GetPendingGraceNotifications` |
 | F-038 | Titles | PostAuthor primary-title hydration | IMPLEMENTED | Phase 8 — `internal/post/` PostDTO `author.primary_title` field populated via `title.Repository.GetPrimaryTitle`; zero social-validation metrics |
 | F-039 | Titles | Title HTTP API | IMPLEMENTED | Phase 9 — `internal/title/handler.go`; `GET /titles/catalog`, `GET/GET/PUT/DELETE /titles/me*`, `GET /titles/{userID}/primary`; privacy-aware; integration tests in `internal/integration/title_api_test.go` |
+| F-040 | Titles | Flutter title system integration | IMPLEMENTED | Phase 10 — `lib/features/title/`; Title Library / Manage Title screen; set/clear primary title (pessimistic, server-authoritative mutation via `PUT`/`DELETE /titles/me/primary` → `GET /titles/me`); profile primary-title badge (`GET /titles/{userID}/primary`); PostCard author primary-title badge (zero N+1 — hydrated from existing post response `author.primary_title`); `title_unlocked` and `title_grace_period` notification event mappings in `lib/features/notification/`; `/settings/title` route; 197 Flutter tests passing |
 
 ## Update protocol
 

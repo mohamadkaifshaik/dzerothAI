@@ -101,6 +101,18 @@ func NewInfraMetrics(reg prometheus.Registerer, log *zap.Logger) *InfraMetrics {
 		Help: "Redis availability: 1 = available (last health check succeeded), 0 = unavailable.",
 	})
 
+	// dzeroth_redis_errors_total is registered here and exposed via RecordRedisError
+	// but is currently dormant in production: no call site increments it.
+	//
+	// Wiring RecordRedisError into the rate-limit middlewares (post, auth, follow,
+	// etc.) would require adding *InfraMetrics to each middleware's constructor or
+	// the existing postRateLimitMiddleware/authRateLimitMiddleware signatures.
+	// That is a non-trivial, cross-package change that risks breaking the existing
+	// API and is deferred to a dedicated tech-debt cleanup phase.
+	//
+	// Do NOT delete this counter — it is registered and present in /metrics so
+	// Prometheus can alert when it first increments. Do NOT wire it ad-hoc in
+	// individual middlewares without a coordinated signature change.
 	redisErrors := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "dzeroth_redis_errors_total",
 		Help: "Total number of Redis infrastructure errors (excludes redis.Nil cache misses).",

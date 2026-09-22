@@ -124,15 +124,17 @@ Authorization: Bearer <jwt_access_token>
   "content": "Post text up to 500 Unicode code points.",
   "post_type": "original | reply | quote | repost",
   "parent_post_id": "<uuid-v7 | null>",
-  "quoted_post_id": "<uuid-v7 | null>"
+  "quoted_post_id": "<uuid-v7 | null>",
+  "share_initiated_at": "<ISO 8601 UTC | absent>"
 }
 ```
 
 - `content`: required for `original`, `reply`, and `quote`. Must not exceed 500 Unicode code points.
 - `post_type`: required. One of `original`, `reply`, `quote`, `repost`.
 - `parent_post_id`: required for `reply`. The post being replied to.
-- `quoted_post_id`: required for `quote`. The post being quoted.
-- For `quote` posts, `content` must contain at least 5 distinct words (Dzeroth §2.2). The five-second client countdown is a UI concern; the backend enforces the word-count rule independently.
+- `quoted_post_id`: required for `quote` and `repost`. The post being quoted or reposted.
+- `share_initiated_at`: **required for `quote` and `repost`; must be absent for `original` and `reply`.** ISO 8601 UTC timestamp (e.g. `2026-09-22T10:00:00Z`) recording when the client began the mandatory 5-second countdown. The backend independently validates the elapsed time from this value to the request arrival time.
+- For `quote` posts, `content` must contain at least 5 distinct words (Dzeroth §2.2). The five-second client countdown is a UX guard; the backend enforces both the word-count rule and the timing rule independently.
 - Mentions (`@handle`) and hashtags (`#tag`) are extracted and persisted automatically.
 
 **Response:** `201 Created` — single-resource envelope containing the created `PostDTO`.
@@ -141,6 +143,11 @@ Authorization: Bearer <jwt_access_token>
 
 - 500 Unicode code-point limit enforced at PostgreSQL (CHECK), Go service, and API validation layers.
 - Five-distinct-word rule enforced server-side for `quote` post type.
+- **Five-second share delay rule enforced server-side for `quote` and `repost` types (CLAUDE.md §2.2):**
+  - `share_initiated_at` is required; absence returns `400 VALIDATION_ERROR`.
+  - Values more than 30 seconds in the future are rejected (clock-skew tolerance for NTP drift).
+  - If `time.Since(share_initiated_at) < 5s` the request is rejected: `400 VALIDATION_ERROR` with message `"share action must be initiated at least 5 seconds before submission"`.
+  - Do NOT add a client boolean flag to bypass this check. The backend enforces it.
 - Response `PostDTO` contains zero public social-validation metrics (no likes, impressions, bookmark counts, or follower counts).
 - Rate limit exceeded returns `429 Too Many Requests` with standard error shape.
 

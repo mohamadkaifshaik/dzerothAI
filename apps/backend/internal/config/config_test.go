@@ -408,3 +408,35 @@ func TestLoad_InvalidOptionalDuration_Succeeds(t *testing.T) {
 		t.Errorf("expected SessionCleanupInterval=1h (default), got: %v", cfg.SessionCleanupInterval)
 	}
 }
+
+func TestLoad_InvalidTitleWorkerInterval_Succeeds(t *testing.T) {
+	// An invalid TITLE_WORKER_INTERVAL value must not cause Load to fail.
+	// The default (5m) must be used instead.
+	vars := requiredVars()
+	vars["TITLE_WORKER_INTERVAL"] = "not-a-duration"
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with invalid TITLE_WORKER_INTERVAL: unexpected error: %v", err)
+	}
+	if cfg.TitleWorkerInterval != 5*time.Minute {
+		t.Errorf("expected TitleWorkerInterval=5m (default), got: %v", cfg.TitleWorkerInterval)
+	}
+}
+
+func TestLoad_InvalidTitleNotificationInterval_Succeeds(t *testing.T) {
+	// An invalid TITLE_NOTIFICATION_INTERVAL value must not cause Load to fail.
+	// The default (1m) must be used instead.
+	vars := requiredVars()
+	vars["TITLE_NOTIFICATION_INTERVAL"] = "not-a-duration"
+	setEnv(t, vars)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with invalid TITLE_NOTIFICATION_INTERVAL: unexpected error: %v", err)
+	}
+	if cfg.TitleNotificationInterval != time.Minute {
+		t.Errorf("expected TitleNotificationInterval=1m (default), got: %v", cfg.TitleNotificationInterval)
+	}
+}
