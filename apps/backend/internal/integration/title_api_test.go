@@ -111,6 +111,10 @@ func buildTitleAPIServer(t *testing.T) *titleTestServer {
 		// Auth routes — needed to register test users and obtain tokens.
 		// Redis is required for the auth rate-limit middleware (fail-closed).
 		authHandler.RegisterRoutes(r, redisClient, testJWTSecret)
+		// User routes — needed so registerTitleTestUser can resolve the
+		// authenticated user's UUID via GET /api/v1/me.
+		userHandler := user.NewHandler(userSvc, log)
+		userHandler.RegisterRoutes(r, testJWTSecret)
 		// Title routes.
 		titleHandler.RegisterRoutes(r, testJWTSecret)
 	})
