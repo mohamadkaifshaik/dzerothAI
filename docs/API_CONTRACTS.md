@@ -48,19 +48,18 @@ Authorization: Bearer <jwt_access_token>
 
 ```json
 {
-  "data": [],
-  "pagination": {
-    "next_cursor": "base64url-opaque-string",
-    "has_more": false,
-    "terminated": true
-  }
+  "items": [],
+  "next_cursor": "",
+  "terminated": true
 }
 ```
 
-- `terminated: true` means the server has reached the hard feed boundary for this session.
-- When `terminated` is `true`, `next_cursor` is `null` and `has_more` is `false`.
-- The Flutter client must stop requesting and render the feed boundary UI when `terminated` is `true`.
+- `items` is always a JSON array.
+- `next_cursor` is an opaque cursor for the next page. It is never `null`. On the home, author, thread, and hashtag feeds it is the empty string `""` when `terminated` is `true`.
+- `terminated: true` means the current cursor chain has reached the end of its available window or there are no further eligible items. There is no `has_more` field and no server-side per-session state.
+- The client must stop requesting further pages and render the feed boundary UI when `terminated` is `true`.
 - The cursor is an opaque base64url-encoded value. Clients must not construct or parse it.
+- Page sizes, hard maximum depths, and malformed-cursor status codes are documented per endpoint below.
 
 ### Single-resource response
 
@@ -110,8 +109,8 @@ Authorization: Bearer <jwt_access_token>
 | Posts | `POST` | `/api/v1/posts` | IMPLEMENTED | Auth required. Rate limited: 30 requests per 15 min per user (fail-closed Redis policy). See request/response below. |
 | Posts | `GET` | `/api/v1/posts/{postId}` | IMPLEMENTED | No auth required. Returns single post. Public DTO — zero social-validation metrics. |
 | Posts | `DELETE` | `/api/v1/posts/{postId}` | IMPLEMENTED | Auth required. Owner only. Soft delete (sets `is_deleted` flag). |
-| Posts | `GET` | `/api/v1/posts/{postId}/thread` | IMPLEMENTED | No auth required. Paginated thread replies. Cursor-based. `terminated: true` when server-side max depth (100) is reached. |
-| Posts | `GET` | `/api/v1/users/{userId}/posts` | IMPLEMENTED | No auth required. Paginated author post list. Cursor-based. `terminated: true` when server-side max (200) is reached. |
+| Posts | `GET` | `/api/v1/posts/{postId}/thread` | IMPLEMENTED | No auth required. Pages of 25 replies (chronological). Hard maximum depth 100 replies per cursor chain; `terminated: true` on the final page. |
+| Posts | `GET` | `/api/v1/users/{userId}/posts` | IMPLEMENTED | No auth required. Pages of 50 posts (newest first). Hard maximum depth 200 posts per cursor chain; `terminated: true` on the final page. |
 
 #### `POST /api/v1/posts` — Create post
 
@@ -206,18 +205,18 @@ Authorization: Bearer <jwt_access_token>
 
 ```json
 {
-  "data": [ /* array of PostDTO */ ],
-  "pagination": {
-    "next_cursor": "<base64url | null>",
-    "has_more": false,
-    "terminated": true
-  }
+  "items": [ /* array of PostDTO */ ],
+  "next_cursor": "<base64url | \"\">",
+  "terminated": true
 }
 ```
 
 **Key behaviors:**
 
-- `terminated: true` when server-side max depth (100 replies) is reached. Flutter client must stop requesting and display the feed boundary UI.
+- Replies are ordered chronologically (`created_at` ASC, `id` ASC), 25 per page.
+- Hard maximum depth: only the current first 100 eligible (non-deleted) replies are served per cursor chain. The final page has `terminated: true` and `next_cursor: ""`. Flutter client must stop requesting and display the feed boundary UI.
+- A syntactically valid cursor outside the current window returns `items: []`, `next_cursor: ""`, `terminated: true`.
+- A malformed cursor returns `400 VALIDATION_ERROR`.
 - Finite feed — no infinite scrolling.
 
 #### `GET /api/v1/users/{userId}/posts` — Get author post list
@@ -232,7 +231,10 @@ Authorization: Bearer <jwt_access_token>
 
 **Key behaviors:**
 
-- `terminated: true` when server-side max (200 posts) is reached. Flutter client must stop requesting and display the feed boundary UI.
+- Posts are ordered newest first, 50 per page.
+- Hard maximum depth: only the author's current top 200 eligible (non-deleted) posts are served per cursor chain. The final page has `terminated: true` and `next_cursor: ""`. Flutter client must stop requesting and display the feed boundary UI.
+- A syntactically valid cursor outside the current window returns an empty, terminated page (`items: []`, `next_cursor: ""`, `terminated: true`).
+- A malformed cursor returns `400 VALIDATION_ERROR`.
 - Finite feed — no infinite scrolling.
 - Response items are `PostDTO`; no public social-validation metrics.
 
@@ -248,7 +250,7 @@ Authorization: Bearer <jwt_access_token>
 | Block | `DELETE` | `/api/v1/users/{userID}/block` | IMPLEMENTED | Auth required. No-op if not blocked. Returns 204. |
 | Mute | `POST` | `/api/v1/users/{userID}/mute` | IMPLEMENTED | Auth required. Idempotent. Rate limited: shared with block limit. Returns 204. |
 | Mute | `DELETE` | `/api/v1/users/{userID}/mute` | IMPLEMENTED | Auth required. No-op if not muted. Returns 204. |
-| Feed | `GET` | `/api/v1/feeds/home` | IMPLEMENTED | Auth required. Follower-based DB-first JOIN. Cursor-paginated. `terminated: true` at 200 items. Filters deleted, blocked, muted, private-account posts (server-side). |
+| Feed | `GET` | `/api/v1/feeds/home` | IMPLEMENTED | Auth required. Follower-based DB-first JOIN. Pages of 50; hard maximum depth 200 eligible posts per cursor chain; `terminated: true` on the final page. Filters deleted, blocked, muted, private-account posts (server-side). |
 | Bookmark | `POST` | `/api/v1/posts/{postID}/bookmark` | IMPLEMENTED | Auth required. Idempotent. Returns 204. Rate limited: 120/15min. |
 | Bookmark | `DELETE` | `/api/v1/posts/{postID}/bookmark` | IMPLEMENTED | Auth required. No-op if not bookmarked. Returns 204. |
 | Bookmark | `GET` | `/api/v1/me/bookmarks` | IMPLEMENTED | Auth required. Owner-only (JWT callerID only — no path param). Cursor-paginated. `terminated: true` at 200 items. Soft-deleted posts excluded. |
@@ -266,19 +268,22 @@ Authorization: Bearer <jwt_access_token>
 ```json
 {
   "items": [ /* array of PostDTO */ ],
-  "next_cursor": "<base64url | null>",
+  "next_cursor": "<base64url | \"\">",
   "terminated": true
 }
 ```
 
 **Key behaviors:**
 
-- `terminated: true` at server-enforced maximum of 200 posts per session. Flutter client must stop requesting and display the "Go Touch Grass" boundary UX.
+- Posts are ordered newest first, 50 per page.
+- Hard maximum depth: at most the caller's current top 200 eligible posts are served per cursor chain. The eligibility filters below are applied before the 200-post window is selected. The final page has `terminated: true` and `next_cursor: ""`. Flutter client must stop requesting and display the "Go Touch Grass" boundary UX.
 - Soft-deleted posts (`is_deleted = TRUE`) are excluded.
 - Posts from blocked users (in either direction) are excluded.
 - Posts from muted users are excluded.
 - Posts from private-account users the caller does not follow are excluded.
-- Termination is per-session (resets on new client session). No server-side daily counter.
+- A syntactically valid cursor outside the current window returns `items: []`, `next_cursor: ""`, `terminated: true`.
+- A malformed cursor returns `422 VALIDATION_ERROR`.
+- A request without a cursor starts from the current top-200 eligible window. There is no server-side session state or daily counter.
 
 #### `GET /api/v1/users/{userID}/following` and `GET /api/v1/users/{userID}/followers`
 
@@ -401,7 +406,7 @@ Authorization: Bearer <jwt_access_token>
 
 | Area | Method | Path | Status | Notes |
 |---|---|---|---|---|
-| Topics | `GET` | `/api/v1/hashtags/{tag}/posts` | IMPLEMENTED | Auth optional. Cursor-paginated. `terminated: true` at 200 posts. Block filtering applied for authenticated callers. Tag normalized server-side (lowercase, `#` stripped). |
+| Topics | `GET` | `/api/v1/hashtags/{tag}/posts` | IMPLEMENTED | Auth optional. Pages of 50; hard maximum depth 200 per cursor chain. Block filtering applied for authenticated callers. Tag normalized server-side (lowercase, `#` stripped). |
 
 #### `GET /api/v1/hashtags/{tag}/posts` — Hashtag feed
 
@@ -415,14 +420,18 @@ Authorization: Bearer <jwt_access_token>
 ```json
 {
   "items": [ /* PostDTO array — zero public metrics */ ],
-  "next_cursor": "<opaque>",
+  "next_cursor": "<opaque | \"\">",
   "terminated": true
 }
 ```
 
-- `terminated: true` at server-enforced max of 200 posts. Flutter renders `GoTouchGrassWidget`.
+- Posts are ordered newest first, 50 per page.
+- Hard maximum depth: only the current top 200 eligible posts matching the hashtag are served per cursor chain. The final page has `terminated: true` and `next_cursor: ""`. Flutter renders `GoTouchGrassWidget`.
 - Returns `400 VALIDATION_ERROR` for malformed tag format.
 - Soft-deleted posts excluded.
+- Posts by authors the authenticated caller has blocked are excluded.
+- A syntactically valid cursor outside the current window returns an empty, terminated page (`items: []`, `next_cursor: ""`, `terminated: true`).
+- A malformed cursor returns `400 VALIDATION_ERROR`.
 
 ### Phase 9 — Title System HTTP API
 

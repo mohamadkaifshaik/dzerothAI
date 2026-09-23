@@ -2,6 +2,8 @@
 
 **Status:** ACCEPTED
 
+Amended 2026-09-23: page size vs. max depth, bounded-window enforcement, and termination scope resolved (d2163e4, 67907f7).
+
 ## Context
 
 CLAUDE.md section 2.1 is an absolute product rule: there must be no infinite scrolling.
@@ -32,44 +34,48 @@ fully opaque. It must never construct or parse a cursor value.
 
 ### Pagination envelope
 
-All feed and collection endpoints return:
+Feed endpoints return a flat page:
 
 ```json
 {
-  "data": [],
-  "pagination": {
-    "next_cursor": "base64url...",
-    "has_more": false,
-    "terminated": true
-  }
+  "items": [],
+  "next_cursor": "",
+  "terminated": true
 }
 ```
 
-- `next_cursor` is `null` when `terminated` is `true` or when there are no more items.
-- `has_more` is `false` when `terminated` is `true` or when no further items exist.
-- `terminated` is `true` when the server has reached the hard feed depth limit for this request.
+- `next_cursor` is the empty string `""` when `terminated` is `true`. It is never `null`.
+- There is no `has_more` field.
+- `terminated` is `true` when the current depth window is exhausted — `max_depth` has been
+  reached or no further eligible items exist.
 
 ### Hard termination
 
-The server enforces a maximum feed depth (`max_depth`) per feed type. Example values
-(configurable, not hard-coded):
+The server enforces a page size and a hard maximum depth (`max_depth`) per feed. These are
+implementation constants (`internal/feed/service.go`, `internal/post/service.go`), not
+runtime configuration:
 
-| Feed type | Phase 3 default |
-|---|---|
-| Home timeline | 200 items |
-| Inner Circle | 150 items |
-| Discovery | 100 items |
+| Feed | Page size | Hard maximum depth |
+|---|---|---|
+| Home | 50 | 200 |
+| Author | 50 | 200 |
+| Hashtag | 50 | 200 |
+| Thread | 25 | 100 |
 
-When the cursor position would exceed `max_depth`, the server returns the final page with
-`terminated: true` and `next_cursor: null`. It does not return a cursor that would allow
-fetching beyond the limit.
+Inner Circle and Discovery feeds remain deferred and are not implemented.
 
-### Open decision — termination scope
+Each query first selects the current top-`max_depth` eligible rows, after all visibility
+filters and in the feed's ordering. The cursor is then applied within that bounded window
+and `page_size` rows are returned. A cursor can never widen the window.
 
-Whether feed termination resets on app restart (per-session) or persists for a defined
-server-side period (per-day or per-calendar-period) is not yet decided. This does not
-affect Phase 1 or Phase 2. The decision must be recorded before Phase 3 implementation
-begins.
+A syntactically valid cursor outside the current window returns `items: []`,
+`next_cursor: ""`, `terminated: true`.
+
+### Termination scope
+
+Resolved (2026-09-23, 67907f7): termination applies per cursor chain over the current
+top-`max_depth` window. A request without a cursor starts a new chain from the current
+window. There is no server-side session state or counter.
 
 ### Flutter client obligations
 
@@ -106,12 +112,14 @@ Rejected. Keyset without a hard limit is equivalent to infinite scrolling at the
 ## Consequences
 
 - Every feed endpoint must implement `max_depth` enforcement and the `terminated` flag.
-- The Go feed repository layer must accept and validate cursor values, rejecting malformed
-  or out-of-range cursors.
+- The Go feed layer must accept and validate cursor values. Malformed cursors are rejected
+  with `VALIDATION_ERROR` using each endpoint's existing status mapping: HTTP 400 for the
+  author, thread, and hashtag feeds; HTTP 422 for the home feed. A syntactically valid
+  cursor outside the current window is not rejected; it returns an empty, terminated page.
 - The Flutter feed BLoC must be designed from Phase 3 with `FeedTerminatedState` as a
   first-class lifecycle state, not an afterthought.
-- Phase 1 and Phase 2 implementation must use the envelope shape defined here in any
-  collection responses (even non-feed lists) for consistency.
+- Phase 1 and Phase 2 implementation must use the `{items, next_cursor, terminated}` shape
+  in any collection responses (even non-feed lists) for consistency.
 
 ## Validation / follow-up
 
@@ -119,4 +127,4 @@ Rejected. Keyset without a hard limit is equivalent to infinite scrolling at the
   trigger at the correct item count.
 - Flutter BLoC tests must verify: the transition to `FeedTerminatedState` when
   `terminated: true` is received, and that no further requests are issued after termination.
-- Before Phase 3 begins, resolve the open decision on termination scope and update this ADR.
+- Termination scope is resolved; see "Termination scope" above.
