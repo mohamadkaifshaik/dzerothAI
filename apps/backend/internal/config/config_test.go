@@ -1,7 +1,9 @@
 package config
 
 import (
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -438,5 +440,151 @@ func TestLoad_InvalidTitleNotificationInterval_Succeeds(t *testing.T) {
 	}
 	if cfg.TitleNotificationInterval != time.Minute {
 		t.Errorf("expected TitleNotificationInterval=1m (default), got: %v", cfg.TitleNotificationInterval)
+	}
+}
+
+// ── stderr warning emission ───────────────────────────────────────────────────
+
+// captureStderr redirects os.Stderr to a pipe while fn runs and returns everything
+// written to it. fn runs synchronously and its output is read only after the write
+// end is closed, so it must write less than the OS pipe buffer (config warnings are
+// a few hundred bytes). Callers must not use t.Parallel(): os.Stderr is process-global.
+// t.Cleanup restores os.Stderr even if fn aborts the test via t.Fatal.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = orig
+		_ = w.Close() // no-op error if already closed below
+		_ = r.Close()
+	})
+
+	fn()
+
+	os.Stderr = orig
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stderr: %v", err)
+	}
+	return string(out)
+}
+
+func TestReadSecretFile_Unreadable_ReturnsEmptyAndWarns(t *testing.T) {
+	// A path inside a fresh temp dir that is never created — guaranteed unreadable.
+	t.Setenv("JWT_SECRET_FILE", filepath.Join(t.TempDir(), "missing_jwt_secret"))
+
+	var got string
+	stderr := captureStderr(t, func() {
+		got = readSecretFile("JWT_SECRET")
+	})
+
+	if got != "" {
+		t.Errorf("expected readSecretFile to return empty string for unreadable file, got: %q", got)
+	}
+	if !strings.Contains(stderr, "WARN config:") {
+		t.Errorf("expected stderr to contain %q, got: %q", "WARN config:", stderr)
+	}
+	if !strings.Contains(stderr, "JWT_SECRET_FILE") {
+		t.Errorf("expected stderr to mention JWT_SECRET_FILE, got: %q", stderr)
+	}
+}
+
+func TestLoad_UnreadableSecretFile_FallsBackToEnv(t *testing.T) {
+	// JWT_SECRET_FILE points at a missing file; Load must warn and fall back to JWT_SECRET.
+	envSecret := "env_fallback_secret_aaaabbbbccccddddeeee" // 40 bytes, fake
+	vars := requiredVars()
+	vars["JWT_SECRET"] = envSecret
+	vars["JWT_SECRET_FILE"] = filepath.Join(t.TempDir(), "missing_jwt_secret")
+	setEnv(t, vars)
+
+	var cfg *Config
+	var err error
+	stderr := captureStderr(t, func() {
+		cfg, err = Load()
+	})
+
+	if err != nil {
+		t.Fatalf("Load() with unreadable JWT_SECRET_FILE and valid JWT_SECRET: unexpected error: %v", err)
+	}
+	if string(cfg.JWTSecret) != envSecret {
+		t.Error("JWTSecret: expected the JWT_SECRET environment value to be used as fallback")
+	}
+	if !strings.Contains(stderr, "WARN config:") || !strings.Contains(stderr, "JWT_SECRET_FILE") {
+		t.Errorf("expected a JWT_SECRET_FILE warning on stderr, got: %q", stderr)
+	}
+	if strings.Contains(stderr, envSecret) {
+		t.Error("stderr must not contain the JWT secret value")
+	}
+}
+
+func TestLoad_UnreadableSecretFile_NoFallback_Fails(t *testing.T) {
+	// JWT_SECRET_FILE is unreadable and JWT_SECRET is empty: no usable secret, Load must fail.
+	vars := requiredVars()
+	vars["JWT_SECRET"] = "" // empty is treated as unset by Load
+	vars["JWT_SECRET_FILE"] = filepath.Join(t.TempDir(), "missing_jwt_secret")
+	setEnv(t, vars)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		_, err = Load()
+	})
+
+	if err == nil {
+		t.Fatal("expected Load() to fail when JWT_SECRET_FILE is unreadable and JWT_SECRET is unset")
+	}
+	if !strings.Contains(err.Error(), "JWT_SECRET_FILE") {
+		t.Errorf("expected error to identify JWT_SECRET / JWT_SECRET_FILE, got: %v", err)
+	}
+	if !strings.Contains(stderr, "JWT_SECRET_FILE") {
+		t.Errorf("expected a JWT_SECRET_FILE warning on stderr, got: %q", stderr)
+	}
+}
+
+func TestLoad_InvalidOptional_EmitsStderrWarning(t *testing.T) {
+	cases := []struct {
+		key        string
+		value      string
+		isFallback func(*Config) bool
+	}{
+		{"REDIS_TLS", "not-a-bool", func(c *Config) bool { return !c.RedisTLS }},
+		{"SESSION_CLEANUP_INTERVAL", "not-a-duration", func(c *Config) bool { return c.SessionCleanupInterval == time.Hour }},
+		{"TITLE_WORKER_INTERVAL", "not-a-duration", func(c *Config) bool { return c.TitleWorkerInterval == 5*time.Minute }},
+		{"TITLE_NOTIFICATION_INTERVAL", "not-a-duration", func(c *Config) bool { return c.TitleNotificationInterval == time.Minute }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			vars := requiredVars()
+			vars[tc.key] = tc.value
+			setEnv(t, vars)
+
+			var cfg *Config
+			var err error
+			stderr := captureStderr(t, func() {
+				cfg, err = Load()
+			})
+
+			if err != nil {
+				t.Fatalf("Load() with invalid %s: unexpected error: %v", tc.key, err)
+			}
+			if !tc.isFallback(cfg) {
+				t.Errorf("expected default fallback value for invalid %s", tc.key)
+			}
+			if !strings.Contains(stderr, "WARN config:") {
+				t.Errorf("expected stderr to contain %q, got: %q", "WARN config:", stderr)
+			}
+			if !strings.Contains(stderr, tc.key) {
+				t.Errorf("expected stderr warning to mention %s, got: %q", tc.key, stderr)
+			}
+		})
 	}
 }
