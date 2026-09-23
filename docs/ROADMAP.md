@@ -1,6 +1,6 @@
 # Dzeroth Roadmap
 
-**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 complete (ranking deferred) — Phase 7–9 complete (title system backend) — Phase 10 complete (Flutter title system integration) — Phase 7 Hardening next`
+**Status:** `PHASE 1 COMPLETE — Phase 2 complete — Phase 3 complete — Phase 4 complete — Phase 5 complete — Phase 6 complete (ranking deferred) — Phase 7–9 complete (title system backend) — Phase 10 complete (Flutter title system integration) — Phase 7 Hardening in progress (Phase 8B–8D foundations complete)`
 
 Dzeroth is a production-grade, text-first social platform with familiar X/Twitter-like functionality and independently implemented UI/UX. It must preserve Dzeroth's anti-addiction, privacy, and quality constraints.
 
@@ -58,7 +58,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [x] Block/mute enforcement (atomic block+unfollow transaction, feed/profile filtering)
 - [x] Bookmarks (owner-scoped, private DTO, paginated list, terminated at 200)
 - [x] Repost idempotency (partial unique index migration 0009)
-- [x] Quote/repost 5-second countdown (PostComposeBloc, cancellable, no bypass path)
+- [x] Quote/repost 5-second countdown (PostComposeBloc, cancellable, no bypass path) — backend-enforced in `post.Service` via `share_initiated_at`: missing or malformed timestamps, elapsed time under 5 seconds, and timestamps more than 30 seconds in the future are rejected with `400 VALIDATION_ERROR`
 
 **Exit gate:** feeds are bounded, performant, secure, and consistent with Dzeroth rules. ✓ (Inner Circle and Discovery feeds deferred — require separate architecture design)
 
@@ -74,7 +74,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [ ] Inner Circle (deferred)
 - [ ] Discovery/algorithmic feed (deferred)
 
-**Exit gate:** interaction state is consistent, idempotent, authorized, and covered by tests. ✓ (Topics/trends, Inner Circle, and Discovery deferred)
+**Exit gate:** interaction state is consistent, idempotent, authorized, and covered by tests. ✓ (Inner Circle and Discovery deferred)
 
 ## Phase 5 — Safety and creator functionality
 
@@ -99,33 +99,33 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [ ] Sunday-night rotation behavior — DEFERRED
 - [ ] Failure recovery and idempotency — DEFERRED
 
-**Exit gate:** rankings are deterministic, recoverable, and operationally observable. ✓ (partial — topics/trends complete; ranking permanently deferred to dedicated feature)
+**Exit gate:** rankings are deterministic, recoverable, and operationally observable. ✓ (partial — topics/trends complete; ranking deferred to a dedicated future feature)
 
 ## Phase 7 — Hardening
 
-- [ ] Unit tests
-- [ ] Integration tests
-- [ ] API contract tests
-- [ ] Database migration tests
-- [ ] Security review
-- [ ] Dependency/static analysis
-- [ ] Performance/load testing
-- [ ] Observability validation
-- [ ] Backup/restore validation
+- [x] Unit tests (CI `backend`, `race`, and `flutter` jobs)
+- [x] Integration tests (Phase 8D; CI `integration` job against PostgreSQL + Redis)
+- [ ] API contract tests — partial: API-level integration tests in `internal/integration/*_api_test.go` assert response contracts; no dedicated contract-test suite
+- [x] Database migration tests (CI `migrations` job; `TestDB_MigrationsIdempotent`)
+- [ ] Security review — pre-production security checklist in `docs/DEPLOYMENT_TOPOLOGY.md`; no formal review recorded
+- [ ] Dependency/static analysis — partial: `go vet` in CI; govulncheck run manually as a baseline (2026-09-23, `docs/DEPLOYMENT_TOPOLOGY.md`), not part of CI
+- [x] Performance/load testing (staging k6 baseline and local Go micro-benchmarks, 2026-09-23; `docs/PERFORMANCE_BASELINE.md`)
+- [ ] Observability validation — metrics and health endpoints implemented (`docs/MONITORING.md`); alerting not deployed
+- [x] Backup/restore validation (restore drill 2026-09-21; `docs/BACKUP_RECOVERY.md`)
 - [ ] Production reviewer approval
 
 **Exit gate:** no critical release blockers remain.
 
 ## Phase 8 — Release and deployment
 
-- [ ] Environment-specific configuration
-- [ ] CI/CD
-- [ ] Build artifacts
-- [ ] Database release safety
-- [ ] Deployment procedure
-- [ ] Rollback procedure
-- [ ] Post-deploy smoke tests
-- [ ] Operational runbook
+- [x] Environment-specific configuration
+- [ ] CI/CD — partial: CI implemented (Phase 8B); CD not implemented
+- [ ] Build artifacts — partial: Docker image built in CI, not published
+- [x] Database release safety
+- [x] Deployment procedure
+- [x] Rollback procedure
+- [ ] Post-deploy smoke tests — partial: documented manual steps; not automated
+- [x] Operational runbook
 
 **Exit gate:** a repeatable production release can be performed and rolled back safely.
 
@@ -147,7 +147,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 
 - [x] Live PostgreSQL integration tests: connectivity, migrations idempotency, user CRUD, session CRUD, constraint enforcement (Phase 8D-1)
 - [x] Live Redis integration tests: connectivity, auth rejection, rate-limit key behavior (SetNX/Incr/Expire), key isolation, window expiry (Phase 8D-1)
-- [x] `integration` job added to CI (bitnami/redis with requirepass, postgis:15-3.3) (Phase 8D-1)
+- [x] `integration` job added to CI (redis:7-alpine with requirepass configured via `docker exec`, postgis:15-3.3) (Phase 8D-1)
 - [x] API-level integration tests against real httptest.Server: register/login/GET-me flow, logout invalidates refresh, refresh valid/invalid, refresh rate-limit 429 + Retry-After, health/livez/readyz, request-ID, JWT failure WARN log, CORS allow-all and allowlist, error envelope format, PostgreSQL+HTTP chain, Redis rate-limit state created (Phase 8D-2)
 
 ### Phase 8D-4 — Production Hardening
@@ -160,7 +160,7 @@ Dzeroth is a production-grade, text-first social platform with familiar X/Twitte
 - [x] Dockerfile healthcheck port: `ARG API_PORT=8080` + `ENV API_PORT` added; HEALTHCHECK uses `${API_PORT}` variable. Documents the runtime override limitation
 - [x] Compose graceful shutdown: `stop_grace_period: 20s` added to API service in both `docker-compose.prod.yml` and `docker-compose.staging.yml` (buffer above Go API's 15s shutdown timeout)
 - [x] Redis error counter assessment: `dzeroth_redis_errors_total` left dormant — wiring requires adding `*InfraMetrics` to `RateLimitMiddleware` signature (non-trivial signature change). Documented in `docs/MONITORING.md`
-- [x] Invalid optional env var warnings: `optionalBoolWarn` and `optionalDurationWarn` emit WARN to stderr when a variable is set but unparseable. `REDIS_TLS` and `SESSION_CLEANUP_INTERVAL` use warn variants. Tests added in `config_test.go`
+- [x] Invalid optional env var warnings: `optionalBoolWarn` and `optionalDurationWarn` emit WARN to stderr when a variable is set but unparseable. `REDIS_TLS`, `SESSION_CLEANUP_INTERVAL`, `TITLE_WORKER_INTERVAL`, and `TITLE_NOTIFICATION_INTERVAL` use warn variants. Tests added in `config_test.go`
 - [x] Security response headers middleware: `internal/platform/middleware/security_headers.go` — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. Wired into `cmd/api/main.go` after Recoverer. Unit tests in `security_headers_test.go`. Integration test assertion in `api_test.go`
 
 ## Rule
