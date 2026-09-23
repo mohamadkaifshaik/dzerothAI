@@ -3,8 +3,8 @@ package metrics_test
 import (
 	"testing"
 
-	ioprometheusclient "github.com/prometheus/client_model/go"
 	"github.com/prometheus/client_golang/prometheus"
+	ioprometheusclient "github.com/prometheus/client_model/go"
 
 	"github.com/mohamadkaifshaik/dzerothAI/apps/backend/internal/platform/metrics"
 )
