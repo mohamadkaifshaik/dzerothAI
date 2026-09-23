@@ -1000,6 +1000,7 @@ Use this checklist before any production deployment. Status labels:
 | 21 | Production reverse proxy provisioned with valid TLS certificate | **Reference config** (`nginx/nginx.prod.conf`); operator must provision and configure with real certs. |
 | 22 | Docker Secrets `_FILE` convention supported; opt-in for operators | **Implemented** (config.go supports `JWT_SECRET_FILE`, `POSTGRES_PASSWORD_FILE`, `REDIS_PASSWORD_FILE`; see `secrets/README.md`). Default deployment still uses plain env files. |
 | 23 | External monitoring / alerting on `dzeroth_redis_up`, `readyz`, error rates | **Reference config** (`monitoring/prometheus.yml`; see `docs/MONITORING.md`). Operator must deploy Prometheus and configure alerting. |
+| 24 | Go dependency vulnerability scan (govulncheck) | **Required** (manual; not in CI). govulncheck v1.4.0 run 2026-09-23 at e3bfd95: 0 reachable vulnerabilities, 0 vulnerabilities in imported packages; 1 module-level advisory GO-2026-5932 (golang.org/x/crypto/openpgp, not imported by the backend; backend uses x/crypto/bcrypt; no fixed version available). |
 
 ---
 
