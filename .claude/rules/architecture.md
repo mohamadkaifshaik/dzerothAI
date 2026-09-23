@@ -41,8 +41,7 @@ Do not create parallel architectures.
 ```text
 apps/backend/
 ├── cmd/
-│   ├── gateway/
-│   ├── core-api/
+│   ├── api/
 │   └── rank-cron/
 ├── internal/
 └── db/

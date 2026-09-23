@@ -32,8 +32,8 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-013 | Feed | Finite content loops | IMPLEMENTED | Phase 3 — all feeds terminate server-side; HomeFeedTerminated / PostFeedTerminated are terminal BLoC states |
 | F-014 | Feed | Hard termination / Go Touch Grass | IMPLEMENTED | Phase 3 — GoTouchGrassWidget rendered on all terminated feed states; no bypass path |
 | F-015 | Privacy | Hide public validation metrics | IMPLEMENTED | Phase 2/3 — zero metric fields in PostDTO, FollowUserDTO, BookmarkDTO; enforced by reflection tests |
-| F-016 | Social | Repost/retweet-style sharing | IMPLEMENTED | Phase 2 (`post_type=repost`) + Phase 3 (idempotency via migration 0009 partial unique index, 5-second countdown) |
-| F-017 | Social | Quote posts | IMPLEMENTED | Phase 2 (`post_type=quote`, 5-distinct-word rule) + Phase 3 (5-second countdown enforced in PostComposeBloc) |
+| F-016 | Social | Repost/retweet-style sharing | IMPLEMENTED | Phase 2 (`post_type=repost`) + Phase 3 (idempotency via migration 0009 partial unique index, 5-second countdown); 5-second rule also backend-enforced in `post.Service` via `share_initiated_at` |
+| F-017 | Social | Quote posts | IMPLEMENTED | Phase 2 (`post_type=quote`, 5-distinct-word rule) + Phase 3 (5-second countdown enforced in PostComposeBloc); 5-second rule also backend-enforced in `post.Service` via `share_initiated_at` |
 | F-018 | Social | Bookmarks | IMPLEMENTED | Phase 3 — `internal/bookmark/`, migration 0008, owner-scoped, Flutter `features/bookmark/`; PostDetailScreen bookmark wiring fixed in Phase 4 Wave 0 |
 | F-019 | Discovery | Search | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
 | F-020 | Notifications | Notifications | IMPLEMENTED | Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
@@ -42,12 +42,12 @@ Agents must search this registry before creating a feature, module, endpoint, mo
 | F-023 | Creator | Private Creator Studio | IMPLEMENTED | Phase 5 — `internal/studio/`, Flutter `features/studio/`; `GET /api/v1/me/studio/analytics`; current-state aggregates only; owner-scoped; terminated at 50 items |
 | F-024 | Ranking | Localized weekly titles | DEFERRED | Phase 6 — ranking deferred to dedicated future feature |
 | F-033 | Discovery | Topics/Trends (hashtag feed) | IMPLEMENTED | Phase 6 — `GET /api/v1/hashtags/{tag}/posts` (`internal/post/` extension); Flutter `features/hashtag/`; tappable `#hashtag` tokens in PostCard; terminated at 200 items; block-filtered for authenticated callers |
-| F-025 | Operations | Observability | PLANNED | Phase 7 |
-| F-026 | Operations | CI/CD and deployment | PLANNED | Phase 8 |
+| F-025 | Operations | Observability | IMPLEMENTED | Structured logging, request IDs, Prometheus metrics (`internal/platform/metrics/`, admin `/metrics`), health/liveness/readiness endpoints (`/health`, `/livez`, `/readyz`), monitoring documentation (`docs/MONITORING.md`). Alerting and Grafana dashboards are operator-provisioned and are not included in this repository |
+| F-026 | Operations | CI/CD and deployment | PARTIAL | CI implemented (Phase 8B — `.github/workflows/ci.yml`: vet, build, unit, race, migration smoke, integration, Flutter, Docker build); CD/deployment automation not implemented |
 | F-027 | Social | Follow/follower system | IMPLEMENTED | Phase 3 — `internal/follow/`, migration 0007, instant follow, `IsBlockedBy` check, private-account enforcement, Flutter `features/follow/` |
 | F-028 | Social | Reactions/likes | IMPLEMENTED | Phase 4 — `internal/reaction/`, migration 0010, Flutter `features/reaction/` |
-| F-029 | Notifications | Notifications | IMPLEMENTED | Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
-| F-030 | Discovery | Search (posts + users) | IMPLEMENTED | Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
+| F-029 | Notifications | Notifications | IMPLEMENTED | **Duplicate of F-020** (F-020 is the authoritative record). Phase 4 — `internal/notification/`, migration 0011, Flutter `features/notification/` |
+| F-030 | Discovery | Search (posts + users) | IMPLEMENTED | **Duplicate of F-019** (F-019 is the authoritative record). Phase 4 — `internal/search/`, migration 0012, Flutter `features/search/` |
 | F-031 | Settings | Account settings and privacy | IMPLEMENTED | Phase 5 — `GET/PUT /api/v1/me/settings` (Phase 1 backend), Flutter `features/settings/`; real SettingsScreen replaces placeholder |
 | F-032 | Safety | Self-suspension | IMPLEMENTED | Phase 5 — `DELETE /api/v1/me/account` (`internal/user/`), `auth.RevokeAllSessions`, Flutter SettingsScreen confirmation dialog; `is_suspended=TRUE` soft-suspend |
 | F-034 | Titles | Title schema and seed data | IMPLEMENTED | Phase 7–9 — migrations 0014–0018; `title_definitions` seeded with 5 active definitions + `top_1pct_creator` (inactive); `user_titles` lifecycle table; `users.primary_title_id` FK |
