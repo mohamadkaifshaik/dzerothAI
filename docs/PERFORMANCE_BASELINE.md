@@ -2,8 +2,9 @@
 
 > Phase 11C hardening artifact.
 >
-> All measurements marked **NOT YET EXECUTED** require an operator to run the
-> commands against a live staging environment. Do not invent numbers.
+> Staging measurements require an operator to run the k6 command against a live
+> staging environment; local micro-benchmark measurements are labeled as local.
+> Do not invent numbers.
 
 ---
 
@@ -29,7 +30,26 @@ go test -bench=. -benchmem ./internal/feed/...
 | `BenchmarkFeedCursorDecode` | base64url decoding of an opaque string to FeedCursor |
 | `BenchmarkFeedCursorRoundTrip` | combined encode + decode cycle |
 
-**Results:** NOT YET EXECUTED — operator must run the command above.
+**Results:** EXECUTED — local development reference, 2026-09-23 (HEAD `fff9133`).
+
+> **Local development reference only.** Measured on Windows amd64 / Intel
+> i5-1240P / Go 1.26.6. These are not staging or production measurements.
+
+**Command used:**
+
+```bash
+cd apps/backend
+go test -run='^$' -bench='^BenchmarkFeedCursor' -benchmem ./internal/feed/...
+```
+
+**Environment:** Windows amd64, 12th Gen Intel(R) Core(TM) i5-1240P, Go 1.26.6,
+GOMAXPROCS=16, single run (`-count=1`). Result: PASS (package time 4.255s).
+
+| Benchmark | Iterations | ns/op | B/op | allocs/op |
+|---|---|---|---|---|
+| `BenchmarkFeedCursorEncode` | 2,336,470 | 491.7 | 464 | 6 |
+| `BenchmarkFeedCursorDecode` | 1,000,000 | 1058 | 472 | 9 |
+| `BenchmarkFeedCursorRoundTrip` | 731,034 | 1747 | 936 | 15 |
 
 ---
 
@@ -123,11 +143,11 @@ k6 run \
 
 | Component | Measurement | Value | Date |
 |---|---|---|---|
-| `BenchmarkFeedCursorEncode` | ns/op | NOT YET EXECUTED | — |
-| `BenchmarkFeedCursorEncode` | B/op | NOT YET EXECUTED | — |
-| `BenchmarkFeedCursorDecode` | ns/op | NOT YET EXECUTED | — |
-| `BenchmarkFeedCursorDecode` | B/op | NOT YET EXECUTED | — |
-| `BenchmarkFeedCursorRoundTrip` | ns/op | NOT YET EXECUTED | — |
+| `BenchmarkFeedCursorEncode` | ns/op | 491.7 (local) | 2026-09-23 |
+| `BenchmarkFeedCursorEncode` | B/op | 464 (local) | 2026-09-23 |
+| `BenchmarkFeedCursorDecode` | ns/op | 1058 (local) | 2026-09-23 |
+| `BenchmarkFeedCursorDecode` | B/op | 472 (local) | 2026-09-23 |
+| `BenchmarkFeedCursorRoundTrip` | ns/op | 1747 (local) | 2026-09-23 |
 | `create_post p(95) latency` | ms | 37.92 (staging) | 2026-09-23 |
 | `home_feed p(95) latency` | ms | 40.18 (staging) | 2026-09-23 |
 | `auth_login p(95) latency` | ms | 40.19 (staging) | 2026-09-23 |
