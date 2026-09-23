@@ -18,6 +18,10 @@ import (
 // is received (CLAUDE.md §2.1 — no infinite scrolling).
 const maxHomeFeedDepth = 200
 
+// homeFeedPageSize is the number of posts returned per home feed request
+// inside the top-maxHomeFeedDepth window (four full pages per chain).
+const homeFeedPageSize = 50
+
 // FeedService is the interface for home timeline feed retrieval.
 type FeedService interface {
 	GetHomeFeed(ctx context.Context, callerID uuid.UUID, cursorStr string) (post.PostPage, error)
@@ -102,7 +106,7 @@ func (s *Service) GetHomeFeed(ctx context.Context, callerID uuid.UUID, cursorStr
 
 	// Step 5: query the repository.
 	posts, nextCursor, terminated, err := s.repo.ListHomeTimeline(
-		ctx, callerID, blockedIDs, mutedIDs, cursor, maxHomeFeedDepth,
+		ctx, callerID, blockedIDs, mutedIDs, cursor, homeFeedPageSize, maxHomeFeedDepth,
 	)
 	if err != nil {
 		s.log.Error("feed: list home timeline", ctxlog.RequestIDField(ctx), zap.Stringer("caller_id", callerID), zap.Error(err))

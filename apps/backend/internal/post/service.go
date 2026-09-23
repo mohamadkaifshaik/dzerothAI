@@ -22,6 +22,14 @@ const (
 	maxDepthThread  = 100
 	maxDepthHashtag = 200
 
+	// maxDepth* above is the hard cumulative depth of each feed (CLAUDE.md §2.1,
+	// ADR 0006): a cursor chain can only ever expose items from the current
+	// top-maxDepth window. pageSize* is the number of items returned per request
+	// inside that window; maxDepth is a multiple of pageSize so pages are full.
+	pageSizeAuthor  = 50
+	pageSizeThread  = 25
+	pageSizeHashtag = 50
+
 	// minQuoteWords is the minimum number of distinct words required in quote
 	// post content. This is a Dzeroth product invariant (CLAUDE.md §2.2).
 	// The normalization strategy here (lowercase, strip leading/trailing
@@ -416,7 +424,7 @@ func (s *Service) ListPostsByAuthor(ctx context.Context, callerID *uuid.UUID, au
 		cursor = c
 	}
 
-	posts, nextCursor, terminated, err := s.repo.ListByAuthor(ctx, authorID, cursor, maxDepthAuthor)
+	posts, nextCursor, terminated, err := s.repo.ListByAuthor(ctx, authorID, cursor, pageSizeAuthor, maxDepthAuthor)
 	if err != nil {
 		s.log.Error("post: list by author", zap.Error(err))
 		return PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
@@ -442,7 +450,7 @@ func (s *Service) ListThreadReplies(ctx context.Context, threadRootID uuid.UUID,
 		cursor = c
 	}
 
-	posts, nextCursor, terminated, err := s.repo.ListThreadReplies(ctx, threadRootID, cursor, maxDepthThread)
+	posts, nextCursor, terminated, err := s.repo.ListThreadReplies(ctx, threadRootID, cursor, pageSizeThread, maxDepthThread)
 	if err != nil {
 		s.log.Error("post: list thread replies", zap.Error(err))
 		return PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")
@@ -487,7 +495,7 @@ func (s *Service) PostsByHashtag(ctx context.Context, callerID *uuid.UUID, rawTa
 		}
 	}
 
-	posts, nextCursor, terminated, err := s.repo.ListByHashtag(ctx, tag, cursor, maxDepthHashtag, blockedIDs)
+	posts, nextCursor, terminated, err := s.repo.ListByHashtag(ctx, tag, cursor, pageSizeHashtag, maxDepthHashtag, blockedIDs)
 	if err != nil {
 		s.log.Error("post: posts by hashtag", zap.Error(err))
 		return PostPage{}, apierror.NewAPIError(apierror.CodeInternal, "an unexpected error occurred")

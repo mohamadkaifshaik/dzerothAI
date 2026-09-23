@@ -161,7 +161,7 @@ func TestPostAuthor_ListByAuthor_WithTitle(t *testing.T) {
 	grantAndSetPrimaryTitle(ctx, t, titleRepo, userID, defCenturion)
 	createTestPost(ctx, t, postRepo, userID, "centurion post")
 
-	posts, _, _, err := postRepo.ListByAuthor(ctx, userID, nil, 10)
+	posts, _, _, err := postRepo.ListByAuthor(ctx, userID, nil, 10, 200)
 	if err != nil {
 		t.Fatalf("ListByAuthor: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestPostAuthor_ListThreadReplies_WithTitle(t *testing.T) {
 		t.Fatalf("create reply post: %v", err)
 	}
 
-	replies, _, _, err := postRepo.ListThreadReplies(ctx, parentID, nil, 10)
+	replies, _, _, err := postRepo.ListThreadReplies(ctx, parentID, nil, 10, 100)
 	if err != nil {
 		t.Fatalf("ListThreadReplies: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestPostAuthor_ListByHashtag_WithTitle(t *testing.T) {
 	tag := "ttltest_" + userID.String()[:8]
 	createTestPostWithHashtag(ctx, t, postRepo, userID, "post with "+tag, tag)
 
-	posts, _, _, err := postRepo.ListByHashtag(ctx, tag, nil, 10, nil)
+	posts, _, _, err := postRepo.ListByHashtag(ctx, tag, nil, 10, 200, nil)
 	if err != nil {
 		t.Fatalf("ListByHashtag: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestPostAuthor_Feed_WithTitle(t *testing.T) {
 		t.Fatalf("insert follow: %v", err)
 	}
 
-	posts, _, _, err := feedRepo.ListHomeTimeline(ctx, followerID, nil, nil, nil, 20)
+	posts, _, _, err := feedRepo.ListHomeTimeline(ctx, followerID, nil, nil, nil, 20, 200)
 	if err != nil {
 		t.Fatalf("ListHomeTimeline: %v", err)
 	}
@@ -537,7 +537,7 @@ func TestPostAuthor_MultipleAuthors(t *testing.T) {
 	createTestPost(ctx, t, postRepo, userA, "multi-author A post "+suffix)
 	createTestPost(ctx, t, postRepo, userB, "multi-author B post "+suffix)
 
-	posts, _, _, err := feedRepo.ListHomeTimeline(ctx, viewer, nil, nil, nil, 20)
+	posts, _, _, err := feedRepo.ListHomeTimeline(ctx, viewer, nil, nil, nil, 20, 200)
 	if err != nil {
 		t.Fatalf("ListHomeTimeline: %v", err)
 	}

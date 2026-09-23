@@ -107,55 +107,53 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (Post, error) {
 	return p, nil
 }
 
-// ListByAuthor returns a paginated list of non-deleted posts by the given author.
-// Results are ordered by created_at DESC (most recent first).
-// Returns (posts, nextCursor, terminated, error).
-// terminated is true when the limit is reached or no further rows exist.
-func (r *Repository) ListByAuthor(ctx context.Context, authorID uuid.UUID, cursor *FeedCursor, limit int) ([]Post, string, bool, error) {
-	// Fetch one extra row to detect whether more rows exist beyond the limit.
-	fetchLimit := limit + 1
-
-	var (
-		rows pgx.Rows
-		err  error
-	)
-
+// cursorArgs returns the (timestamp, id) SQL arguments for an optional cursor.
+// Both are untyped nil (SQL NULL) when cursor is nil, which the window queries
+// treat as "start at the top of the window".
+func cursorArgs(cursor *FeedCursor) (any, any) {
 	if cursor == nil {
-		const q = `
-			SELECT
-				p.id, p.author_id, p.post_type, p.content,
-				p.parent_id, p.thread_root_id, p.quoted_post_id,
-				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url,
-				td.slug, td.display_name
-			FROM posts p
-			JOIN users u ON u.id = p.author_id
-			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
-			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
-			WHERE p.author_id = $1
-			  AND p.is_deleted = FALSE
-			ORDER BY p.created_at DESC, p.id DESC
-			LIMIT $2`
-		rows, err = r.pool.Query(ctx, q, authorID, fetchLimit)
-	} else {
-		const q = `
-			SELECT
-				p.id, p.author_id, p.post_type, p.content,
-				p.parent_id, p.thread_root_id, p.quoted_post_id,
-				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url,
-				td.slug, td.display_name
-			FROM posts p
-			JOIN users u ON u.id = p.author_id
-			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
-			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
-			WHERE p.author_id = $1
-			  AND p.is_deleted = FALSE
-			  AND (p.created_at, p.id) < ($2, $3)
-			ORDER BY p.created_at DESC, p.id DESC
-			LIMIT $4`
-		rows, err = r.pool.Query(ctx, q, authorID, cursor.Timestamp, cursor.AfterID, fetchLimit)
+		return nil, nil
 	}
+	return cursor.Timestamp, cursor.AfterID
+}
+
+// ListByAuthor returns one page of the author's non-deleted posts, ordered by
+// created_at DESC, id DESC (most recent first).
+//
+// Hard depth (CLAUDE.md §2.1, ADR 0006): the window CTE selects the author's
+// current top-maxDepth eligible posts first; the cursor then pages inside that
+// window only, pageSize rows at a time. No cursor — valid, forged, or stale —
+// can reach a post ranked below maxDepth. A cursor that lies past the end of
+// the current window yields an empty, terminated page.
+// Returns (posts, nextCursor, terminated, error).
+func (r *Repository) ListByAuthor(ctx context.Context, authorID uuid.UUID, cursor *FeedCursor, pageSize, maxDepth int) ([]Post, string, bool, error) {
+	const q = `
+		WITH win AS (
+			SELECT p.id, p.created_at
+			FROM posts p
+			WHERE p.author_id = $1
+			  AND p.is_deleted = FALSE
+			ORDER BY p.created_at DESC, p.id DESC
+			LIMIT $2
+		)
+		SELECT
+			p.id, p.author_id, p.post_type, p.content,
+			p.parent_id, p.thread_root_id, p.quoted_post_id,
+			p.is_deleted, p.created_at, p.updated_at,
+			u.id, u.handle, u.display_name, u.avatar_url,
+			td.slug, td.display_name
+		FROM win w
+		JOIN posts p ON p.id = w.id
+		JOIN users u ON u.id = p.author_id
+		LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+		LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
+		WHERE $3::timestamptz IS NULL OR (w.created_at, w.id) < ($3::timestamptz, $4::uuid)
+		ORDER BY w.created_at DESC, w.id DESC
+		LIMIT $5`
+
+	cursorTS, cursorID := cursorArgs(cursor)
+	// Fetch one extra row (within the window) to detect whether more rows exist.
+	rows, err := r.pool.Query(ctx, q, authorID, maxDepth, cursorTS, cursorID, pageSize+1)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("post: list by author query: %w", err)
 	}
@@ -166,56 +164,43 @@ func (r *Repository) ListByAuthor(ctx context.Context, authorID uuid.UUID, curso
 		return nil, "", false, fmt.Errorf("post: list by author scan: %w", err)
 	}
 
-	return buildPage(posts, limit)
+	return buildPage(posts, pageSize)
 }
 
-// ListThreadReplies returns a paginated list of non-deleted replies in a thread.
-// Results are ordered by created_at ASC (chronological).
-// Returns (posts, nextCursor, terminated, error).
-func (r *Repository) ListThreadReplies(ctx context.Context, threadRootID uuid.UUID, cursor *FeedCursor, limit int) ([]Post, string, bool, error) {
-	fetchLimit := limit + 1
-
-	var (
-		rows pgx.Rows
-		err  error
-	)
-
-	if cursor == nil {
-		const q = `
-			SELECT
-				p.id, p.author_id, p.post_type, p.content,
-				p.parent_id, p.thread_root_id, p.quoted_post_id,
-				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url,
-				td.slug, td.display_name
+// ListThreadReplies returns one page of non-deleted replies in a thread,
+// ordered by created_at ASC, id ASC (chronological).
+//
+// Hard depth: the window CTE selects the thread's first maxDepth eligible
+// replies (in chronological order); the cursor pages inside that window only,
+// pageSize rows at a time. A cursor past the end of the window yields an empty,
+// terminated page. Returns (posts, nextCursor, terminated, error).
+func (r *Repository) ListThreadReplies(ctx context.Context, threadRootID uuid.UUID, cursor *FeedCursor, pageSize, maxDepth int) ([]Post, string, bool, error) {
+	const q = `
+		WITH win AS (
+			SELECT p.id, p.created_at
 			FROM posts p
-			JOIN users u ON u.id = p.author_id
-			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
-			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
 			WHERE p.thread_root_id = $1
 			  AND p.is_deleted = FALSE
 			ORDER BY p.created_at ASC, p.id ASC
-			LIMIT $2`
-		rows, err = r.pool.Query(ctx, q, threadRootID, fetchLimit)
-	} else {
-		const q = `
-			SELECT
-				p.id, p.author_id, p.post_type, p.content,
-				p.parent_id, p.thread_root_id, p.quoted_post_id,
-				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url,
-				td.slug, td.display_name
-			FROM posts p
-			JOIN users u ON u.id = p.author_id
-			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
-			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
-			WHERE p.thread_root_id = $1
-			  AND p.is_deleted = FALSE
-			  AND (p.created_at, p.id) > ($2, $3)
-			ORDER BY p.created_at ASC, p.id ASC
-			LIMIT $4`
-		rows, err = r.pool.Query(ctx, q, threadRootID, cursor.Timestamp, cursor.AfterID, fetchLimit)
-	}
+			LIMIT $2
+		)
+		SELECT
+			p.id, p.author_id, p.post_type, p.content,
+			p.parent_id, p.thread_root_id, p.quoted_post_id,
+			p.is_deleted, p.created_at, p.updated_at,
+			u.id, u.handle, u.display_name, u.avatar_url,
+			td.slug, td.display_name
+		FROM win w
+		JOIN posts p ON p.id = w.id
+		JOIN users u ON u.id = p.author_id
+		LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+		LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
+		WHERE $3::timestamptz IS NULL OR (w.created_at, w.id) > ($3::timestamptz, $4::uuid)
+		ORDER BY w.created_at ASC, w.id ASC
+		LIMIT $5`
+
+	cursorTS, cursorID := cursorArgs(cursor)
+	rows, err := r.pool.Query(ctx, q, threadRootID, maxDepth, cursorTS, cursorID, pageSize+1)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("post: list thread replies query: %w", err)
 	}
@@ -226,7 +211,7 @@ func (r *Repository) ListThreadReplies(ctx context.Context, threadRootID uuid.UU
 		return nil, "", false, fmt.Errorf("post: list thread replies scan: %w", err)
 	}
 
-	return buildPage(posts, limit)
+	return buildPage(posts, pageSize)
 }
 
 // SoftDelete sets is_deleted = TRUE for the post identified by postID where
@@ -274,60 +259,46 @@ func (r *Repository) GetAuthorIsPrivate(ctx context.Context, authorID uuid.UUID)
 	return isPrivate, nil
 }
 
-// ListByHashtag returns a cursor-paginated list of non-deleted posts tagged
-// with the given normalized tag (lowercase, without '#').
-// Posts authored by users in blockedIDs are excluded when the slice is non-empty.
-// Results are ordered by created_at DESC, id DESC (most recent first, deterministic).
-// Returns (posts, nextCursor, terminated, error).
-func (r *Repository) ListByHashtag(ctx context.Context, tag string, cursor *FeedCursor, limit int, blockedIDs []uuid.UUID) ([]Post, string, bool, error) {
-	fetchLimit := limit + 1
+// ListByHashtag returns one page of non-deleted posts tagged with the given
+// normalized tag (lowercase, without '#'). Posts authored by users in
+// blockedIDs are excluded when the slice is non-empty. Results are ordered by
+// created_at DESC, id DESC (most recent first, deterministic).
+//
+// Hard depth: the window CTE applies the tag, soft-delete, and block filters
+// first and keeps the current top-maxDepth eligible posts, so filtered rows
+// never consume the window. The cursor pages inside the window only, pageSize
+// rows at a time; a cursor past the end of the window yields an empty,
+// terminated page. Returns (posts, nextCursor, terminated, error).
+func (r *Repository) ListByHashtag(ctx context.Context, tag string, cursor *FeedCursor, pageSize, maxDepth int, blockedIDs []uuid.UUID) ([]Post, string, bool, error) {
+	const q = `
+		WITH win AS (
+			SELECT p.id, p.created_at
+			FROM posts p
+			JOIN post_hashtags ph ON ph.post_id = p.id
+			WHERE ph.tag = $1
+			  AND p.is_deleted = FALSE
+			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
+			ORDER BY p.created_at DESC, p.id DESC
+			LIMIT $3
+		)
+		SELECT
+			p.id, p.author_id, p.post_type, p.content,
+			p.parent_id, p.thread_root_id, p.quoted_post_id,
+			p.is_deleted, p.created_at, p.updated_at,
+			u.id, u.handle, u.display_name, u.avatar_url,
+			td.slug, td.display_name
+		FROM win w
+		JOIN posts p ON p.id = w.id
+		JOIN users u ON u.id = p.author_id
+		LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
+		LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
+		WHERE $4::timestamptz IS NULL OR (w.created_at, w.id) < ($4::timestamptz, $5::uuid)
+		ORDER BY w.created_at DESC, w.id DESC
+		LIMIT $6`
+
 	blockedArr := uuidSliceToStringSlice(blockedIDs)
-
-	var (
-		rows pgx.Rows
-		err  error
-	)
-
-	if cursor == nil {
-		const q = `
-			SELECT
-				p.id, p.author_id, p.post_type, p.content,
-				p.parent_id, p.thread_root_id, p.quoted_post_id,
-				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url,
-				td.slug, td.display_name
-			FROM posts p
-			JOIN users u ON u.id = p.author_id
-			JOIN post_hashtags ph ON ph.post_id = p.id
-			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
-			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
-			WHERE ph.tag = $1
-			  AND p.is_deleted = FALSE
-			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
-			ORDER BY p.created_at DESC, p.id DESC
-			LIMIT $3`
-		rows, err = r.pool.Query(ctx, q, tag, blockedArr, fetchLimit)
-	} else {
-		const q = `
-			SELECT
-				p.id, p.author_id, p.post_type, p.content,
-				p.parent_id, p.thread_root_id, p.quoted_post_id,
-				p.is_deleted, p.created_at, p.updated_at,
-				u.id, u.handle, u.display_name, u.avatar_url,
-				td.slug, td.display_name
-			FROM posts p
-			JOIN users u ON u.id = p.author_id
-			JOIN post_hashtags ph ON ph.post_id = p.id
-			LEFT JOIN user_titles ut ON ut.id = u.primary_title_id
-			LEFT JOIN title_definitions td ON td.id = ut.title_definition_id
-			WHERE ph.tag = $1
-			  AND p.is_deleted = FALSE
-			  AND ($2::text[] IS NULL OR array_length($2::text[], 1) IS NULL OR p.author_id::text != ALL($2::text[]))
-			  AND (p.created_at, p.id) < ($3, $4)
-			ORDER BY p.created_at DESC, p.id DESC
-			LIMIT $5`
-		rows, err = r.pool.Query(ctx, q, tag, blockedArr, cursor.Timestamp, cursor.AfterID, fetchLimit)
-	}
+	cursorTS, cursorID := cursorArgs(cursor)
+	rows, err := r.pool.Query(ctx, q, tag, blockedArr, maxDepth, cursorTS, cursorID, pageSize+1)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("post: list by hashtag query: %w", err)
 	}
@@ -338,7 +309,7 @@ func (r *Repository) ListByHashtag(ctx context.Context, tag string, cursor *Feed
 		return nil, "", false, fmt.Errorf("post: list by hashtag scan: %w", err)
 	}
 
-	return buildPage(posts, limit)
+	return buildPage(posts, pageSize)
 }
 
 // uuidSliceToStringSlice converts []uuid.UUID to []string for use in pgx array
@@ -470,6 +441,10 @@ func collectRows(rows pgx.Rows) ([]Post, error) {
 // buildPage trims the extra row fetched for has-more detection and builds
 // the cursor and terminated flag. It does not mutate the input slice beyond
 // the capacity it already has.
+//
+// posts must be at most limit+1 rows taken from inside the endpoint's
+// top-maxDepth window, so "no extra row" means the window is exhausted:
+// terminated=true and an empty cursor.
 func buildPage(posts []Post, limit int) ([]Post, string, bool, error) {
 	hasMore := len(posts) > limit
 	if hasMore {
