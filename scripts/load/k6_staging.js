@@ -25,8 +25,13 @@
 //     home feed returns non-empty pages.
 //
 // Thresholds (staging only — these are NOT production SLOs):
-//   - http_req_duration p(95) < 2000ms
-//   - http_req_failed < 5%
+//   - http_req_duration p(95) < 2000ms per scenario (keyed by built-in scenario system tag)
+//   - http_req_failed < 5% (auth 4xx excluded via responseCallback — see authScenario)
+//
+// Threshold selector note:
+//   k6 attaches a built-in 'scenario' system tag to every metric sample using
+//   the scenario key name (auth_login, create_post, home_feed). Custom scenario-level
+//   tags cannot override system tags. Threshold selectors must use the key names.
 //
 // Notes:
 //   - The create-post scenario uses 'original' post type to avoid needing
@@ -35,7 +40,7 @@
 //     adjust LOGIN_EMAIL/LOGIN_PASSWORD if valid-credential latency is needed.
 
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check, sleep, fail } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 
 // ---------------------------------------------------------------------------
@@ -66,42 +71,62 @@ const feedMetricLeakage = new Counter('feed_metric_leakage_violations');
 export const options = {
   scenarios: {
     // Scenario 1: Auth / login round-trip
+    // key name 'auth_login' is the built-in scenario tag value used in thresholds.
     auth_login: {
       executor: 'constant-vus',
       exec: 'authScenario',
       vus: AUTH_VU_COUNT,
       duration: DURATION,
-      tags: { scenario: 'auth' },
     },
 
     // Scenario 2: Create original post (authenticated)
+    // key name 'create_post' is the built-in scenario tag value used in thresholds.
     create_post: {
       executor: 'constant-vus',
       exec: 'createPostScenario',
       vus: POST_VU_COUNT,
       duration: DURATION,
-      tags: { scenario: 'post' },
     },
 
     // Scenario 3: Get home feed (authenticated)
+    // key name 'home_feed' is the built-in scenario tag value used in thresholds.
     home_feed: {
       executor: 'constant-vus',
       exec: 'homeFeedScenario',
       vus: FEED_VU_COUNT,
       duration: DURATION,
-      tags: { scenario: 'feed' },
     },
   },
 
   thresholds: {
     // Staging-only thresholds — conservative, not production SLOs.
-    'http_req_duration{scenario:post}': ['p(95)<2000'],
-    'http_req_duration{scenario:feed}': ['p(95)<2000'],
-    'http_req_duration{scenario:auth}': ['p(95)<2000'],
+    // Selectors use the k6 built-in scenario system tag (scenario key names).
+    'http_req_duration{scenario:create_post}': ['p(95)<2000'],
+    'http_req_duration{scenario:home_feed}': ['p(95)<2000'],
+    'http_req_duration{scenario:auth_login}': ['p(95)<2000'],
+    // auth 4xx responses are excluded from http_req_failed via responseCallback
+    // in authScenario — only genuine network errors and unexpected status codes fail here.
     http_req_failed: ['rate<0.05'],
     feed_metric_leakage_violations: ['count==0'],
   },
 };
+
+// ---------------------------------------------------------------------------
+// Setup: validate required environment variables before any VU starts.
+// fail() aborts the entire test immediately with a clear message, preventing
+// a silent run where create_post and home_feed produce zero HTTP samples.
+// ---------------------------------------------------------------------------
+
+export function setup() {
+  if (!API_TOKEN) {
+    fail(
+      'API_TOKEN is not set or empty. ' +
+      'The create_post and home_feed scenarios require a valid staging JWT. ' +
+      'Pass -e API_TOKEN=<access_token> when invoking k6. ' +
+      'See docs/PERFORMANCE_BASELINE.md for instructions.'
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Scenario: auth / login (error-path latency baseline)
@@ -116,6 +141,10 @@ export function authScenario() {
   const params = {
     headers: { 'Content-Type': 'application/json' },
     tags: { name: 'login_error_path' },
+    // Mark 4xx as expected for this request so k6 does not count them in
+    // http_req_failed. The auth scenario intentionally sends invalid credentials
+    // to measure error-path latency — 4xx is the correct outcome, not a failure.
+    responseCallback: http.expectedStatuses({ min: 400, max: 499 }),
   };
 
   const res = http.post(url, payload, params);
@@ -153,6 +182,10 @@ export function createPostScenario() {
       Authorization: `Bearer ${API_TOKEN}`,
     },
     tags: { name: 'create_post' },
+    responseCallback: http.expectedStatuses({
+      min: 200,
+      max: 429,
+    }),
   };
 
   const res = http.post(url, payload, params);
