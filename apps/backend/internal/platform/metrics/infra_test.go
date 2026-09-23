@@ -313,3 +313,36 @@ func TestInfraMetrics_NilSafe_RecordRedisError(t *testing.T) {
 	// Must not panic.
 	im.RecordRedisError()
 }
+
+// TestInfraMetrics_RedisError_RegisteredAtZero protects the documented dormancy
+// contract for dzeroth_redis_errors_total: no production call site increments it
+// yet, but it must stay registered and exported at 0 with zero labels so that
+// Prometheus can alert as soon as it first increments. RecordRedisError is
+// deliberately never called here.
+func TestInfraMetrics_RedisError_RegisteredAtZero(t *testing.T) {
+	_, reg := newTestInfra(t)
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	const name = "dzeroth_redis_errors_total"
+	for _, mf := range families {
+		if mf.GetName() != name {
+			continue
+		}
+		ms := mf.GetMetric()
+		if len(ms) != 1 {
+			t.Fatalf("%s: want exactly 1 series, got %d", name, len(ms))
+		}
+		if got := ms[0].GetCounter().GetValue(); got != 0 {
+			t.Errorf("%s before any increment: want 0, got %v", name, got)
+		}
+		if labels := ms[0].GetLabel(); len(labels) != 0 {
+			t.Errorf("%s: expected 0 labels, got %d: %v", name, len(labels), labels)
+		}
+		return
+	}
+	t.Fatalf("%s not registered: metric family absent from registry", name)
+}
